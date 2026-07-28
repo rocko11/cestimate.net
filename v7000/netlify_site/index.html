@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=20260726-1715">
+<link rel="stylesheet" href="styles.css?v=20260728-1739">
 </head>
 <body>
 <div class="app">
@@ -33,7 +33,7 @@
     <div class="tb-cell"><div class="tb-k">Discipline</div><div class="tb-v">Hard-cost estimate</div></div>
     <div class="tb-cell"><div class="tb-k">Basis</div><div class="tb-v">Plan schedules + takeoff factors</div></div>
     <div class="tb-cell"><div class="tb-k">Pricing</div><div class="tb-v"><span class="amber">2025–26</span> NYC market</div></div>
-    <div class="tb-cell"><div class="tb-k">Accuracy / Build</div><div class="tb-v">± 20–30% · <span class="amber">v20260726-1715</span></div></div>
+    <div class="tb-cell"><div class="tb-k">Accuracy / Build</div><div class="tb-v">± 20–30% · <span class="amber">v20260728-1739</span></div></div>
   </div>
 </div>
 
@@ -126,6 +126,33 @@
   </div>
 
   <div class="section">
+    <div class="section-title">Net floor area by floor</div>
+    <div class="card">
+      <div style="overflow-x:auto">
+        <table id="floor-table">
+          <thead><tr>
+            <th>Floor</th><th class="num">Gross SF</th>
+            <th class="num">Deduction % <span class="hint" style="color:#A9C2D8;text-transform:none;letter-spacing:0">core · corridors · walls · mech</span></th>
+            <th class="num">Net SF</th><th></th>
+          </tr></thead>
+          <tbody id="floor-body"></tbody>
+          <tfoot>
+            <tr class="subtot">
+              <td>TOTALS</td>
+              <td class="num" id="fl-tot-gross">—</td>
+              <td class="num">Efficiency <strong id="fl-eff">—</strong></td>
+              <td class="num" id="fl-tot-net">—</td><td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <div class="actions" style="margin-top:.6rem">
+        <button class="btn" onclick="seedFloors()">⊞ Split total GFA into floors</button>
+        <button class="btn" onclick="addFloorRow()">+ Add floor</button>
+      </div>
+      <div class="note" style="margin-top:.6rem">Enter each floor's gross area and its deduction (core, corridors, demising/exterior walls, mechanical). Net SF computes per floor, and the totals <strong>automatically update Total GFA and Net residential SF above</strong> — construction costs run on gross, income-side metrics on net. The efficiency ratio is net ÷ gross.</div>
+    </div>
+
     <div class="section-title">Type &amp; scope</div>
     <div class="card">
       <div class="grid4">
@@ -327,6 +354,6 @@ window.addEventListener('error',function(e){
   if(el){ el.textContent='Script error: '+(e.message||'unknown')+'  — please report this.'; el.classList.remove('hidden'); }
 });
 </script>
-<script src="app.js?v=20260726-1715"></script>
+<script src="app.js?v=20260728-1739"></script>
 </body>
 </html>
