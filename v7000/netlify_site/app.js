@@ -203,7 +203,7 @@ async function callExtractor(parts){
   const content=parts.map(p=>({type:'image',source:{type:'base64',media_type:p.media_type,data:p.data}}));
   content.push({type:'text',text:EXTRACTION_PROMPT});
   const r2=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content}]})});
+    body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,messages:[{role:'user',content}]})});
   if(!r2.ok){
     let m=''; try{ const e=await r2.json(); m=(e&&e.error&&e.error.message)||''; }catch(_){}
     throw new Error(m||('API '+r2.status+' - no backend function found. Deploy to Netlify with ANTHROPIC_API_KEY set.'));
@@ -262,7 +262,7 @@ async function analyzePlans(){
     const {merged,missing}=mergeExtractions(results);
     fillMetrics(merged);
     showExtractNote(results.length, files.length, missing);
-    hide('analyzing'); show('step-2'); setChip(2);
+    hide('analyzing'); show('step-2'); setChip(2); if(!floorRows.length) seedFloors();
   }catch(err){
     hide('analyzing'); show('step-1');
     showBanner('Could not read the plans - ' + err.message);
@@ -354,7 +354,7 @@ function manualEntry(){
   const el=document.getElementById('extract-note');
   if(el) el.innerHTML='<span class="ai-badge">Manual</span> &nbsp;Enter your building\u2019s values below, then run the takeoff. Tip: use \u201cLoad 124 Washington example\u201d on the upload screen if you just want a sample.';
   document.querySelectorAll('#step-2 .field.ai').forEach(f=>f.classList.remove('ai'));
-  hide('step-1'); hide('analyzing'); show('step-2'); setChip(2);
+  hide('step-1'); hide('analyzing'); show('step-2'); setChip(2); if(!floorRows.length) seedFloors();
 }
 
 /* One-click load of the known, verified 124 Washington Avenue values, so the
@@ -369,7 +369,7 @@ function loadExample(){
   fillMetrics(ex);
   const el=document.getElementById('extract-note');
   if(el) el.innerHTML='<span class="ai-badge">Example</span> &nbsp;Loaded the known <strong>124 Washington Avenue</strong> values. Every field is editable — adjust anything, then run the takeoff. To use your own building, go back and upload &amp; analyze its plans.';
-  hide('step-1'); hide('analyzing'); show('step-2'); setChip(2);
+  hide('step-1'); hide('analyzing'); show('step-2'); setChip(2); if(!floorRows.length) seedFloors();
 }
 
 /* ============ LABOR / SCHEDULE REFERENCE DATA ============ */
@@ -710,7 +710,7 @@ function recalc(){
 
 /* ============ TEMPLATES: save / load an estimate as JSON ============ */
 function saveTemplate(){
-  const data={v:2, metrics:{}, overrides, customRows, wages:Object.assign({},TRADE_RATE),
+  const data={v:3, metrics:{}, overrides, customRows, floors:floorRows.slice(), wages:Object.assign({},TRADE_RATE),
     markups:{gc:getV('gc-pct'),op:getV('op-pct'),cont:getV('cont-pct'),margin:getV('margin-pct'),labor:getV('labor-mult')}};
   ['m-name','m-job','m-borough','m-gfa','m-nsf','m-footprint','m-floors','m-units','m-f2f','m-perim',
    'm-cellar','m-worktype','m-ctype','m-occ','m-court','m-windows','m-doors-entry','m-doors-stair',
@@ -731,6 +731,7 @@ function loadTemplate(input){
       Object.keys(overrides).forEach(k=>delete overrides[k]);
       Object.assign(overrides, d.overrides||{});
       customRows=(d.customRows||[]).slice();
+      floorRows=(d.floors||[]).slice(); renderFloors();
       if(d.wages) Object.keys(d.wages).forEach(k=>{ if(TRADE_RATE[k]!==undefined) TRADE_RATE[k]=d.wages[k]; });
       renderWages();
       if(d.markups){ setV('gc-pct',d.markups.gc); setV('op-pct',d.markups.op);
@@ -760,7 +761,7 @@ async function estimateFromPrompt(){
     fillMetrics(parsed);
     const el=document.getElementById('extract-note');
     if(el) el.innerHTML='<span class="ai-badge">From description</span> &nbsp;Values were inferred from your project description. <strong>Review every field</strong> — inferred numbers are assumptions, not measured takeoff. Edit anything, then run the takeoff.';
-    hide('analyzing'); show('step-2'); setChip(2);
+    hide('analyzing'); show('step-2'); setChip(2); if(!floorRows.length) seedFloors();
   }catch(e){
     hide('analyzing'); show('step-1');
     alert('Could not generate from the description ('+e.message+'). Enter the metrics manually instead.');
@@ -773,7 +774,7 @@ async function callExtractorText(prompt){
     if(r.ok){ const d=await r.json(); if(d&&typeof d.text==='string') return d.text; }
   }catch(e){}
   const r2=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:[{type:'text',text:prompt}]}]})});
+    body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,messages:[{role:'user',content:[{type:'text',text:prompt}]}]})});
   if(!r2.ok) throw new Error('API '+r2.status);
   const d2=await r2.json();
   return (d2.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n');
@@ -1020,6 +1021,61 @@ function buildProposal(){
   hide('step-3'); show('step-4');
 }
 function backFromProposal(){ hide('step-4'); show('step-3'); }
+
+
+
+
+/* ============ PER-FLOOR NET AREA ============ */
+/* Each floor: gross SF and a deduction %% (core, corridors, walls, mech).
+   Net computes per floor; totals write back to m-gfa / m-nsf so the whole
+   estimate runs off the floor-by-floor breakdown. */
+let floorRows = [];   // {name, gross, ded}
+
+function seedFloors(){
+  const gfa=+getV('m-gfa')||0, floors=Math.max(1, Math.round(+getV('m-floors')||0)), cellar=(+getV('m-cellar')||0)>=1;
+  if(gfa<=0){ alert('Enter Total GFA (or run the takeoff extraction) first, then split it into floors.'); return; }
+  const n=floors+(cellar?1:0);
+  const per=Math.round(gfa/n);
+  floorRows=[];
+  if(cellar) floorRows.push({name:'Cellar', gross:per, ded:35});     // mech/storage heavy
+  for(let i=1;i<=floors;i++)
+    floorRows.push({name:'Floor '+i, gross:per, ded:i===1?25:18});    // ground floor: lobby/entry
+  renderFloors();
+}
+function addFloorRow(){ floorRows.push({name:'Floor '+(floorRows.length+1), gross:0, ded:18}); renderFloors(); }
+function rmFloorRow(i){ floorRows.splice(i,1); renderFloors(); }
+function setFloor(i,f,v){
+  if(!floorRows[i]) return;
+  floorRows[i][f] = (f==='name') ? v : (parseFloat(v)||0);
+  updateFloorTotals();
+}
+function renderFloors(){
+  const tb=document.getElementById('floor-body'); if(!tb) return;
+  tb.innerHTML=floorRows.map((r,i)=>
+    '<tr>'+
+    '<td><input class="cell" style="width:120px;text-align:left" value="'+esc(r.name)+'" oninput="setFloor('+i+',\'name\',this.value)"></td>'+
+    '<td class="num"><input class="cell" type="number" step="any" value="'+r.gross+'" oninput="setFloor('+i+',\'gross\',this.value)"></td>'+
+    '<td class="num"><input class="cell" type="number" step="any" value="'+r.ded+'" oninput="setFloor('+i+',\'ded\',this.value)"></td>'+
+    '<td class="num" id="fl-net-'+i+'">\u2014</td>'+
+    '<td><button class="rm" title="Remove floor" onclick="rmFloorRow('+i+')">\u00d7</button></td>'+
+    '</tr>').join('');
+  updateFloorTotals();
+}
+function updateFloorTotals(){
+  let g=0, nn=0;
+  floorRows.forEach(function(r,i){
+    const net=Math.max((r.gross||0)*(1-(r.ded||0)/100),0);
+    g+=(r.gross||0); nn+=net;
+    const el=document.getElementById('fl-net-'+i); if(el) el.textContent=fmtN(net)+' SF';
+  });
+  setT('fl-tot-gross', fmtN(g)+' SF');
+  setT('fl-tot-net', fmtN(nn)+' SF');
+  setT('fl-eff', g>0 ? Math.round(nn/g*100)+'%' : '\u2014');
+  if(floorRows.length && g>0){
+    setV('m-gfa', Math.round(g));
+    setV('m-nsf', Math.round(nn));
+  }
+}
 
 /* ============ NAV / HELPERS ============ */
 function goToResults(){ hide('step-2'); show('step-3'); setChip(3); renderWages(); recalc(); }
