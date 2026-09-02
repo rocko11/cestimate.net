@@ -262,7 +262,7 @@ async function analyzePlans(){
     const {merged,missing}=mergeExtractions(results);
     fillMetrics(merged);
     showExtractNote(results.length, files.length, missing);
-    hide('analyzing'); show('step-2'); setChip(2); if(!floorRows.length) seedFloors();
+    hide('analyzing'); show('step-2'); setChip(2);
   }catch(err){
     hide('analyzing'); show('step-1');
     showBanner('Could not read the plans - ' + err.message);
@@ -285,6 +285,7 @@ function mergeExtractions(list){
   firstStr.forEach(k=>{ let v=''; list.forEach(o=>{ if(!v&&o&&typeof o[k]==='string'&&o[k].trim()) v=o[k].trim(); }); m[k]=v||null; });
   flags.forEach(k=>{ let v=null; list.forEach(o=>{ const x=o&&o[k]; if(x===0||x===1) v=(v==null)?x:Math.max(v,x); }); m[k]=v; });
   let f2f=null; list.forEach(o=>{ if(f2f==null&&typeof (o&&o.f2f)==='number') f2f=o.f2f; }); m.f2f=f2f;
+  let fa=null; list.forEach(o=>{ const x=o&&o.floorAreas; if(Array.isArray(x)&&x.length&&(!fa||x.length>fa.length)) fa=x; }); m.floorAreas=fa;
   const LBL={gfa:'Total GFA',nsf:'Net SF',footprint:'Footprint/floor',floors:'# Floors',
     units:'# Units',perimeter:'Perimeter',f2f:'Floor-to-floor',windows:'Windows',
     doorsEntry:'Entry doors',doorsStair:'Stair/fire doors',doorsInterior:'Interior doors',
@@ -305,7 +306,7 @@ function showExtractNote(ok,total,missing){
 
 const EXTRACTION_PROMPT = `You are a senior construction estimator reading approved NYC DOB building plans. Examine EVERY page of this file, including title-block text and especially any SCHEDULE TABLES — window schedule, door & hardware schedule, mechanical/HVAC equipment schedule, plumbing fixture schedule, and unit/occupancy matrix. When a schedule lists quantities, COUNT every row and SUM the quantity column (often "QTY", "NO.", or "#") to get the totals. Read carefully and do NOT guess: if a value genuinely does not appear anywhere in this file, return null for it — never invent a number.
 Return a SINGLE compact JSON object with NO markdown, code fences, or prose. Use null for anything not found. Keys:
-{"projectName":string|null,"dobJob":string|null,"borough":"Manhattan"|"Brooklyn"|"Queens"|"Bronx"|"Staten Island"|null,"gfa":number|null (total gross SF),"nsf":number|null (net residential/usable SF),"footprint":number|null (typical floor plate SF),"floors":number|null (stories above grade),"cellar":0|1|null,"units":number|null (dwelling units),"f2f":number|null (floor-to-floor ft),"perimeter":number|null (building perimeter LF),"worktype":"new"|"conversion"|"gut"|"partial"|null,"constructionType":"I-A"|"I-B"|"II-A"|"II-B"|"III-A"|"III-B"|"V"|null,"occupancy":"R-2"|"R-3"|"B"|"A"|"M"|"I"|null,"court":0|1|null (inner court / curtain wall present),"windows":number|null (total from window schedule),"doorsEntry":number|null (apartment/entry doors),"doorsStair":number|null (stair + fire-rated doors),"doorsInterior":number|null (interior doors),"hvacCondensers":number|null (outdoor/roof condensing units),"hvacIndoor":number|null (indoor air handlers/cassettes),"exhaustFans":number|null (kitchen + bath exhaust fans),"elevators":number|null}
+{"projectName":string|null,"dobJob":string|null,"borough":"Manhattan"|"Brooklyn"|"Queens"|"Bronx"|"Staten Island"|null,"gfa":number|null (total gross SF),"nsf":number|null (net residential/usable SF),"footprint":number|null (typical floor plate SF),"floors":number|null (stories above grade),"cellar":0|1|null,"units":number|null (dwelling units),"f2f":number|null (floor-to-floor ft),"perimeter":number|null (building perimeter LF),"worktype":"new"|"conversion"|"gut"|"partial"|null,"constructionType":"I-A"|"I-B"|"II-A"|"II-B"|"III-A"|"III-B"|"V"|null,"occupancy":"R-2"|"R-3"|"B"|"A"|"M"|"I"|null,"court":0|1|null (inner court / curtain wall present),"windows":number|null (total from window schedule),"doorsEntry":number|null (apartment/entry doors),"doorsStair":number|null (stair + fire-rated doors),"doorsInterior":number|null (interior doors),"hvacCondensers":number|null (outdoor/roof condensing units),"hvacIndoor":number|null (indoor air handlers/cassettes),"exhaustFans":number|null (kitchen + bath exhaust fans),"elevators":number|null,"floorAreas":[{"name":string,"gross":number|null,"net":number|null}]|null (one entry per level including cellar and bulkhead, EXACTLY as printed in the floor-area / zoning analysis table: gross = the printed gross/zoning floor area of that level, net = the printed net/rentable area of that level IF shown; use null for anything not printed; NEVER derive, apportion, or estimate these numbers)}
 JSON only.`;
 
 function parseJSON(text){
@@ -324,7 +325,7 @@ function fillMetrics(p){
   const nb=v=>(typeof v==='number'&&!Number.isNaN(v))?v:''; // number, else blank
   setV('m-name',p.projectName||''); setV('m-job',p.dobJob||'');
   if(p.borough&&BORO_MAP[p.borough]) setSel('m-borough',BORO_MAP[p.borough]);
-  setV('m-gfa',nb(p.gfa)); setV('m-nsf',nb(p.nsf!=null?p.nsf:p.gfa)); setV('m-footprint',nb(p.footprint));
+  setV('m-gfa',nb(p.gfa)); setV('m-nsf',nb(p.nsf)); setV('m-footprint',nb(p.footprint));
   setV('m-floors',nb(p.floors)); setV('m-units',nb(p.units));
   setV('m-f2f',nb(p.f2f)); setV('m-perim',nb(p.perimeter));
   if(p.cellar===0||p.cellar===1) document.getElementById('m-cellar').value=String(p.cellar);
@@ -340,7 +341,8 @@ function fillMetrics(p){
   const gv=id=>+getV(id)||0;
   if(gv('m-gfa')<=0 && gv('m-footprint')>0 && gv('m-floors')>0) setV('m-gfa',Math.round(gv('m-footprint')*gv('m-floors')));
   if(gv('m-footprint')<=0 && gv('m-gfa')>0 && gv('m-floors')>0) setV('m-footprint',Math.round(gv('m-gfa')/gv('m-floors')));
-  if(gv('m-nsf')<=0 && gv('m-gfa')>0) setV('m-nsf',Math.round(gv('m-gfa')*0.78));
+  // NSF is never assumed: if the plans do not state it, it stays blank for per-floor entry.
+  if(Array.isArray(p.floorAreas)) applyExtractedFloors(p.floorAreas);
 }
 
 function clearMetrics(){
@@ -354,7 +356,7 @@ function manualEntry(){
   const el=document.getElementById('extract-note');
   if(el) el.innerHTML='<span class="ai-badge">Manual</span> &nbsp;Enter your building\u2019s values below, then run the takeoff. Tip: use \u201cLoad 124 Washington example\u201d on the upload screen if you just want a sample.';
   document.querySelectorAll('#step-2 .field.ai').forEach(f=>f.classList.remove('ai'));
-  hide('step-1'); hide('analyzing'); show('step-2'); setChip(2); if(!floorRows.length) seedFloors();
+  hide('step-1'); hide('analyzing'); show('step-2'); setChip(2);
 }
 
 /* One-click load of the known, verified 124 Washington Avenue values, so the
@@ -369,17 +371,18 @@ function loadExample(){
   fillMetrics(ex);
   const el=document.getElementById('extract-note');
   if(el) el.innerHTML='<span class="ai-badge">Example</span> &nbsp;Loaded the known <strong>124 Washington Avenue</strong> values. Every field is editable — adjust anything, then run the takeoff. To use your own building, go back and upload &amp; analyze its plans.';
-  hide('step-1'); hide('analyzing'); show('step-2'); setChip(2); if(!floorRows.length) seedFloors();
+  hide('step-1'); hide('analyzing'); show('step-2'); setChip(2);
 }
 
 /* ============ LABOR / SCHEDULE REFERENCE DATA ============ */
-/* Loaded NYC labor rates ($/hr, incl. burden) by trade — representative 2025-26.
-   Editable in the UI (Trade wage table) and scaled by the labor-rate multiplier. */
+/* OPEN-SHOP loaded labor rates ($/hr, wage + burden) — Brooklyn residential,
+   representative 2025-26. Editable per trade in the wage table. For union work
+   set the labor-rate multiplier to ~1.4, or edit trades individually. */
 const TRADE_RATE={
-  laborer:75, operator:130, concrete:90, ironworker:115, carpenter:95, mason:98,
-  roofer:85, glazier:100, insulation:80, drywall:88, tile:92, flooring:82,
-  painter:78, millwork:95, plumber:122, sprinkler:115, hvac:115, electrician:120,
-  elevator:145, abatement:95
+  laborer:52, operator:95, concrete:68, ironworker:82, carpenter:68, mason:72,
+  roofer:62, glazier:75, insulation:58, drywall:60, tile:68, flooring:60,
+  painter:55, millwork:70, plumber:88, sprinkler:85, hvac:82, electrician:85,
+  elevator:115, abatement:70
 };
 const TRADE_DEFAULTS=Object.assign({},TRADE_RATE);
 const TRADE_LABEL={laborer:'Laborer',operator:'Equip. operator',concrete:'Concrete',ironworker:'Ironworker',
@@ -445,7 +448,7 @@ function metrics(){
   // never read $0 just because one field was left blank.
   if(g.gfa<=0 && g.footprint>0 && g.floors>0) g.gfa=g.footprint*g.floors;
   if(g.footprint<=0 && g.gfa>0 && g.floors>0) g.footprint=g.gfa/g.floors;
-  if(g.nsf<=0 && g.gfa>0) g.nsf=Math.round(g.gfa*0.78); // ~78% net-to-gross
+  // NSF is never assumed. If missing, net-based lines price at 0 and a warning shows.
   return g;
 }
 
@@ -627,6 +630,8 @@ function resetEstimate(){
 
 function recalc(){
   const m=metrics();
+  const nw=document.getElementById('nsf-warn');
+  if(nw) nw.classList.toggle('hidden', m.nsf>0);
   const locMult=m.boro*m.ctype*m.occ;
   const laborMult=+getV('labor-mult')||1;
   const divs=buildTakeoff(m);
@@ -761,7 +766,7 @@ async function estimateFromPrompt(){
     fillMetrics(parsed);
     const el=document.getElementById('extract-note');
     if(el) el.innerHTML='<span class="ai-badge">From description</span> &nbsp;Values were inferred from your project description. <strong>Review every field</strong> — inferred numbers are assumptions, not measured takeoff. Edit anything, then run the takeoff.';
-    hide('analyzing'); show('step-2'); setChip(2); if(!floorRows.length) seedFloors();
+    hide('analyzing'); show('step-2'); setChip(2);
   }catch(e){
     hide('analyzing'); show('step-1');
     alert('Could not generate from the description ('+e.message+'). Enter the metrics manually instead.');
@@ -1023,58 +1028,65 @@ function buildProposal(){
 function backFromProposal(){ hide('step-4'); show('step-3'); }
 
 
+/* ============ PER-FLOOR NET AREA (measured values only) ============ */
+/* Gross and net per floor come from the plan floor-area / zoning analysis
+   table, the AI extraction of that table, or the user’s own measurements.
+   NOTHING here is estimated: efficiency is computed FROM the numbers, and the
+   totals write back to m-gfa / m-nsf only when EVERY floor has a value. */
+let floorRows = [];   // {name, gross, net}
 
-
-/* ============ PER-FLOOR NET AREA ============ */
-/* Each floor: gross SF and a deduction %% (core, corridors, walls, mech).
-   Net computes per floor; totals write back to m-gfa / m-nsf so the whole
-   estimate runs off the floor-by-floor breakdown. */
-let floorRows = [];   // {name, gross, ded}
-
-function seedFloors(){
-  const gfa=+getV('m-gfa')||0, floors=Math.max(1, Math.round(+getV('m-floors')||0)), cellar=(+getV('m-cellar')||0)>=1;
-  if(gfa<=0){ alert('Enter Total GFA (or run the takeoff extraction) first, then split it into floors.'); return; }
-  const n=floors+(cellar?1:0);
-  const per=Math.round(gfa/n);
+function createFloorRows(){
+  const floors=Math.max(1, Math.round(+getV('m-floors')||0)), cellar=(+getV('m-cellar')||0)>=1;
   floorRows=[];
-  if(cellar) floorRows.push({name:'Cellar', gross:per, ded:35});     // mech/storage heavy
-  for(let i=1;i<=floors;i++)
-    floorRows.push({name:'Floor '+i, gross:per, ded:i===1?25:18});    // ground floor: lobby/entry
+  if(cellar) floorRows.push({name:'Cellar', gross:0, net:0});
+  for(let i=1;i<=floors;i++) floorRows.push({name:'Floor '+i, gross:0, net:0});
   renderFloors();
 }
-function addFloorRow(){ floorRows.push({name:'Floor '+(floorRows.length+1), gross:0, ded:18}); renderFloors(); }
+function addFloorRow(){ floorRows.push({name:'Level '+(floorRows.length+1), gross:0, net:0}); renderFloors(); }
 function rmFloorRow(i){ floorRows.splice(i,1); renderFloors(); }
 function setFloor(i,f,v){
   if(!floorRows[i]) return;
   floorRows[i][f] = (f==='name') ? v : (parseFloat(v)||0);
   updateFloorTotals();
 }
+function applyExtractedFloors(arr){
+  const rows=(arr||[]).filter(function(f){return f&&(f.name||f.gross!=null||f.net!=null);})
+    .map(function(f){return {name:String(f.name||'Level'),
+      gross:(typeof f.gross==='number'&&f.gross>0)?f.gross:0,
+      net:(typeof f.net==='number'&&f.net>0)?f.net:0};});
+  if(rows.length){ floorRows=rows; renderFloors(); }
+}
 function renderFloors(){
   const tb=document.getElementById('floor-body'); if(!tb) return;
   tb.innerHTML=floorRows.map((r,i)=>
     '<tr>'+
     '<td><input class="cell" style="width:120px;text-align:left" value="'+esc(r.name)+'" oninput="setFloor('+i+',\'name\',this.value)"></td>'+
-    '<td class="num"><input class="cell" type="number" step="any" value="'+r.gross+'" oninput="setFloor('+i+',\'gross\',this.value)"></td>'+
-    '<td class="num"><input class="cell" type="number" step="any" value="'+r.ded+'" oninput="setFloor('+i+',\'ded\',this.value)"></td>'+
-    '<td class="num" id="fl-net-'+i+'">\u2014</td>'+
+    '<td class="num"><input class="cell" type="number" step="any" value="'+(r.gross||'')+'" placeholder="from plans" oninput="setFloor('+i+',\'gross\',this.value)"></td>'+
+    '<td class="num"><input class="cell" type="number" step="any" value="'+(r.net||'')+'" placeholder="from plans" oninput="setFloor('+i+',\'net\',this.value)"></td>'+
+    '<td class="num" id="fl-effr-'+i+'">\u2014</td>'+
     '<td><button class="rm" title="Remove floor" onclick="rmFloorRow('+i+')">\u00d7</button></td>'+
     '</tr>').join('');
   updateFloorTotals();
 }
 function updateFloorTotals(){
-  let g=0, nn=0;
+  let g=0, nn=0, allG=floorRows.length>0, allN=floorRows.length>0;
   floorRows.forEach(function(r,i){
-    const net=Math.max((r.gross||0)*(1-(r.ded||0)/100),0);
-    g+=(r.gross||0); nn+=net;
-    const el=document.getElementById('fl-net-'+i); if(el) el.textContent=fmtN(net)+' SF';
+    g+=(r.gross||0); nn+=(r.net||0);
+    if(!(r.gross>0)) allG=false;
+    if(!(r.net>0)) allN=false;
+    const el=document.getElementById('fl-effr-'+i);
+    if(el) el.textContent=(r.gross>0&&r.net>0)?Math.round(r.net/r.gross*100)+'%':'\u2014';
   });
-  setT('fl-tot-gross', fmtN(g)+' SF');
-  setT('fl-tot-net', fmtN(nn)+' SF');
-  setT('fl-eff', g>0 ? Math.round(nn/g*100)+'%' : '\u2014');
-  if(floorRows.length && g>0){
-    setV('m-gfa', Math.round(g));
-    setV('m-nsf', Math.round(nn));
-  }
+  setT('fl-tot-gross', g>0?fmtN(g)+' SF':'\u2014');
+  setT('fl-tot-net', nn>0?fmtN(nn)+' SF':'\u2014');
+  setT('fl-eff', (g>0&&nn>0)?Math.round(nn/g*100)+'%':'\u2014');
+  // write back ONLY complete, measured totals; partial entry never overwrites.
+  // "Complete" = every row filled AND the table covers every declared level
+  // (floors + cellar), so a partially-read plan table can never replace totals.
+  const declared = Math.round(+getV('m-floors')||0) + (((+getV('m-cellar')||0)>=1)?1:0);
+  const covers = floorRows.length>0 && (declared<=0 || floorRows.length>=declared);
+  if(allG && covers) setV('m-gfa', Math.round(g));
+  if(allN && covers) setV('m-nsf', Math.round(nn));
 }
 
 /* ============ NAV / HELPERS ============ */
