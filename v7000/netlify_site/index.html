@@ -1,8 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+Add Send to Deal Builder button next to Download Excel<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NYC Plan Takeoff Estimator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -217,6 +216,7 @@
 
   <div class="actions" style="margin-top:0;margin-bottom:1rem">
     <button class="btn btn-green" onclick="exportExcel()">⬇ Download Excel takeoff</button>
+    <button class="btn" onclick="sendToDealBuilder()" style="background:#1a7f5a;color:#fff;border-color:#1a7f5a;font-weight:600" title="Send all hard costs, unit counts &amp; building metrics to Deal Builder">🔗 Send to Deal Builder →</button>
     <button class="btn" onclick="backToVerify()">← Adjust inputs</button>
     <button class="btn btn-primary" onclick="buildProposal()">📄 Client proposal</button>
     <button class="btn" onclick="saveTemplate()">💾 Save estimate</button>
