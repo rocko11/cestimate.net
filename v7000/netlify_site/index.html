@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=20260903-0533">
+<link rel="stylesheet" href="styles.css?v=20260903-0856">
 </head>
 <body>
 <div class="app">
@@ -33,7 +33,7 @@
     <div class="tb-cell"><div class="tb-k">Discipline</div><div class="tb-v">Hard-cost estimate</div></div>
     <div class="tb-cell"><div class="tb-k">Basis</div><div class="tb-v">Plan schedules + takeoff factors</div></div>
     <div class="tb-cell"><div class="tb-k">Pricing</div><div class="tb-v"><span class="amber">2025–26</span> NYC market</div></div>
-    <div class="tb-cell"><div class="tb-k">Accuracy / Build</div><div class="tb-v">± 20–30% · <span class="amber">v20260903-0533</span></div></div>
+    <div class="tb-cell"><div class="tb-k">Accuracy / Build</div><div class="tb-v">± 20–30% · <span class="amber">v20260903-0856</span></div></div>
   </div>
 </div>
 
@@ -225,6 +225,8 @@
   </div>
 
   <div class="section">
+    <div id="unreadable-warn" class="note err hidden" style="margin-bottom:.75rem"></div>
+
     <div id="nsf-warn" class="note warn hidden"><strong>Net SF is not set.</strong> The plans didn&#8217;t state it and nothing is assumed &#8212; net-area-based lines (finishes, interior demo) are priced at 0 until you enter Net SF or complete the floor-by-floor table.</div>
 
     <div class="section-title">Material quantity takeoff</div>
@@ -358,6 +360,6 @@ window.addEventListener('error',function(e){
   if(el){ el.textContent='Script error: '+(e.message||'unknown')+'  — please report this.'; el.classList.remove('hidden'); }
 });
 </script>
-<script src="app.js?v=20260903-0533"></script>
+<script src="app.js?v=20260903-0856"></script>
 </body>
 </html>
