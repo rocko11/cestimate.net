@@ -384,7 +384,18 @@ const TRADE_RATE={
   painter:55, millwork:70, plumber:88, sprinkler:85, hvac:82, electrician:85,
   elevator:115, abatement:70
 };
-const TRADE_DEFAULTS=Object.assign({},TRADE_RATE);
+const TRADE_DEFAULTS=Object.assign({},TRADE_RATE);   // open-shop NYC (default)
+const UNION_RATE={
+  laborer:75, operator:130, concrete:90, ironworker:115, carpenter:95, mason:98,
+  roofer:85, glazier:100, insulation:80, drywall:88, tile:92, flooring:82,
+  painter:78, millwork:95, plumber:122, sprinkler:115, hvac:115, electrician:120,
+  elevator:145, abatement:95
+};
+function setRateMode(mode){
+  const src=(mode==='union')?UNION_RATE:TRADE_DEFAULTS;
+  Object.keys(src).forEach(k=>TRADE_RATE[k]=src[k]);
+  renderWages(); recalc();
+}
 const TRADE_LABEL={laborer:'Laborer',operator:'Equip. operator',concrete:'Concrete',ironworker:'Ironworker',
   carpenter:'Carpenter',mason:'Mason',roofer:'Roofer',glazier:'Glazier',insulation:'Insulation',
   drywall:'Drywall/taper',tile:'Tile setter',flooring:'Flooring',painter:'Painter',millwork:'Millwork',
@@ -482,12 +493,12 @@ function buildTakeoff(m){
       {n:'Asbestos / hazmat abatement', basis:'Net area (if pre-1980)', qty:m.nsf, u:'SF', p:16, mh:0.10, trade:'abatement', src:'Confirm w/ survey'},
     ]});
     divs.push({div:'04 · Masonry', items:[
-      {n:'Brick repointing — facade', basis:'Perim × ht × floors × 30%', qty:m.perim*m.f2f*m.floors*0.30, u:'SF', p:28, mh:0.22, trade:'mason', src:'Existing brick retained'},
+      {n:'Brick repointing — facade', basis:'Perim × ht × floors × 30%', qty:m.perim*m.f2f*m.floors*0.30, u:'SF', p:28, mh:0.17, trade:'mason', src:'Existing brick retained'},
       {n:'New CMU bearing/shaft walls', basis:'Shaft 4 sides × ht × floors', qty:4*m.f2f*m.floors, u:'SF', p:38, mh:0.16, trade:'mason', src:'Rated CMU'},
     ]});
     divs.push({div:'06 · Wood & Timber', items:[
       {n:'Existing floor structure mod / reinf', basis:'Net resi area', qty:m.nsf, u:'SF', p:12, mh:0.07, trade:'carpenter', src:'Modify/fire-treat existing'},
-      {n:'Blocking, backing, rough carpentry', basis:'Net area × 0.5', qty:m.nsf*0.5, u:'SF', p:3.5, mh:0.03, trade:'carpenter', src:'Backing for fixtures'},
+      {n:'Blocking, backing, rough carpentry', basis:'Net area × 0.5', qty:m.nsf*0.5, u:'SF', p:3.5, mh:0.022, trade:'carpenter', src:'Backing for fixtures'},
     ]});
   }
 
@@ -514,7 +525,7 @@ function buildTakeoff(m){
   ].filter(Boolean)});
 
   divs.push({div:'09 · Finishes', items:[
-    {n:'Metal stud partition framing', basis:'Net area × 0.95 LF/SF', qty:m.nsf*PARTFACTOR, u:'LF', p:9.8, mh:0.11, trade:'drywall', src:'3-5/8" steel stud · mkt-adj −30%'},
+    {n:'Metal stud partition framing', basis:'Net area × 0.95 LF/SF', qty:m.nsf*PARTFACTOR, u:'LF', p:9.8, mh:0.075, trade:'drywall', src:'3-5/8" steel stud · mkt-adj −30%'},
     {n:'Gypsum board (5/8" Type X)', basis:'Partition LF × ht × 2 + ceilings', qty:(m.nsf*PARTFACTOR*wallht*2)+m.nsf, u:'SF', p:2.28, mh:0.016, trade:'drywall', src:'Both faces + ceiling · mkt-adj −30%'},
     {n:'Porcelain tile — bath & kitchen', basis:'Units × 120 SF', qty:m.units*120, u:'SF', p:19.6, mh:0.14, trade:'tile', src:'Bath/kitchen tile · mkt-adj −30%'},
     {n:'Resilient flooring (LVT)', basis:'Net area − tile area', qty:Math.max(m.nsf-m.units*120,0), u:'SF', p:9.8, mh:0.025, trade:'flooring', src:'Living/bedroom · mkt-adj −30%'},
@@ -540,8 +551,8 @@ function buildTakeoff(m){
   divs.push({div:'23 · HVAC / Mechanical', items:[
     {n:'Outdoor condensing units', basis:'Count from schedule', qty:m.cu, u:'EA', p:5500, mh:15, trade:'hvac', src:'Roof condensers (avg)'},
     {n:'Indoor air handlers / cassettes', basis:'Count from schedule', qty:m.ah, u:'EA', p:1700, mh:9, trade:'hvac', src:'Per unit zones (avg)'},
-    {n:'Exhaust fans (kitchen + bath)', basis:'Count from schedule', qty:m.exh, u:'EA', p:320, mh:4, trade:'hvac', src:'Vented to roof'},
-    {n:'Refrigerant piping & insulation', basis:'Per indoor unit', qty:m.ah, u:'EA', p:1200, mh:11, trade:'hvac', src:'R-410A insulated'},
+    {n:'Exhaust fans (kitchen + bath)', basis:'Count from schedule', qty:m.exh, u:'EA', p:320, mh:1.7, trade:'hvac', src:'Vented to roof'},
+    {n:'Refrigerant piping & insulation', basis:'Per indoor unit', qty:m.ah, u:'EA', p:1200, mh:7, trade:'hvac', src:'R-410A insulated'},
     {n:'Exhaust ductwork & goosenecks', basis:'Per exhaust fan', qty:m.exh, u:'EA', p:2200, mh:9, trade:'hvac', src:'Roof terminations'},
     {n:'Install, controls, balancing (TAB)', basis:'Lump', qty:1, u:'LS', p:95000, mh:380, trade:'hvac', src:'Commissioning'},
   ]});
