@@ -98,8 +98,8 @@ async function postProxy(payload){
     : ('network error contacting the server'+(last&&last.err?': '+last.err.message:'')));
   e.allFailed=true; throw e;
 }
-const MAX_DIM=1300;        // px — longest side of each rendered page
-const JPEG_Q=0.62;         // page image quality
+const MAX_DIM=1800;        // px — raised for readable schedule table text
+const JPEG_Q=0.82;         // raised so small schedule text is legible
 const BATCH_BUDGET=3.2e6;  // ~3.2 MB of base64 per request (safely under Netlify's 6 MB)
 
 let _pdfjs=null;
@@ -281,7 +281,11 @@ function mergeExtractions(list){
   const flags=['cellar','court'];
   const m={};
   numMax.forEach(k=>{ let v=null; list.forEach(o=>{ const x=o&&o[k];
-    if(typeof x==='number'&&!Number.isNaN(x)) v=(v==null)?x:Math.max(v,x); }); m[k]=v; });
+    if(typeof x==='number'&&!Number.isNaN(x)){
+      if(x===-1){ if(v==null) v=-1; }
+      else v=(v==null||v===-1)?x:Math.max(v,x);
+    }
+  }); m[k]=v; });
   firstStr.forEach(k=>{ let v=''; list.forEach(o=>{ if(!v&&o&&typeof o[k]==='string'&&o[k].trim()) v=o[k].trim(); }); m[k]=v||null; });
   flags.forEach(k=>{ let v=null; list.forEach(o=>{ const x=o&&o[k]; if(x===0||x===1) v=(v==null)?x:Math.max(v,x); }); m[k]=v; });
   let f2f=null; list.forEach(o=>{ if(f2f==null&&typeof (o&&o.f2f)==='number') f2f=o.f2f; }); m.f2f=f2f;
@@ -304,10 +308,22 @@ function showExtractNote(ok,total,missing){
   el.innerHTML=h;
 }
 
-const EXTRACTION_PROMPT = `You are a senior construction estimator reading approved NYC DOB building plans. Examine EVERY page of this file, including title-block text and especially any SCHEDULE TABLES — window schedule, door & hardware schedule, mechanical/HVAC equipment schedule, plumbing fixture schedule, and unit/occupancy matrix. When a schedule lists quantities, COUNT every row and SUM the quantity column (often "QTY", "NO.", or "#") to get the totals. Read carefully and do NOT guess: if a value genuinely does not appear anywhere in this file, return null for it — never invent a number.
-Return a SINGLE compact JSON object with NO markdown, code fences, or prose. Use null for anything not found. Keys:
-{"projectName":string|null,"dobJob":string|null,"borough":"Manhattan"|"Brooklyn"|"Queens"|"Bronx"|"Staten Island"|null,"gfa":number|null (total gross SF),"nsf":number|null (net residential/usable SF),"footprint":number|null (typical floor plate SF),"floors":number|null (stories above grade),"cellar":0|1|null,"units":number|null (dwelling units),"f2f":number|null (floor-to-floor ft),"perimeter":number|null (building perimeter LF),"worktype":"new"|"conversion"|"gut"|"partial"|null,"constructionType":"I-A"|"I-B"|"II-A"|"II-B"|"III-A"|"III-B"|"V"|null,"occupancy":"R-2"|"R-3"|"B"|"A"|"M"|"I"|null,"court":0|1|null (inner court / curtain wall present),"windows":number|null (total from window schedule),"doorsEntry":number|null (apartment/entry doors),"doorsStair":number|null (stair + fire-rated doors),"doorsInterior":number|null (interior doors),"hvacCondensers":number|null (outdoor/roof condensing units),"hvacIndoor":number|null (indoor air handlers/cassettes),"exhaustFans":number|null (kitchen + bath exhaust fans),"elevators":number|null,"floorAreas":[{"name":string,"gross":number|null,"net":number|null}]|null (one entry per level including cellar and bulkhead, EXACTLY as printed in the floor-area / zoning analysis table: gross = the printed gross/zoning floor area of that level, net = the printed net/rentable area of that level IF shown; use null for anything not printed; NEVER derive, apportion, or estimate these numbers)}
-JSON only.`;
+const EXTRACTION_PROMPT = `You are a senior NYC construction estimator performing a precise takeoff from approved DOB building plans. Your job is to read EVERY piece of printed text on this page — including the title block, zoning analysis table, and ALL schedule tables.
+
+CRITICAL READING RULES:
+- Read EVERY row of EVERY schedule table visible on this page
+- For window schedules: count each type row, note the QTY/NO column, sum to get total windows
+- For door schedules: distinguish entry/apartment doors vs stair/fire doors vs interior doors
+- For unit/occupancy matrix: read each unit type and count column to get total dwelling units
+- For HVAC/mechanical schedule: count condensing units (outdoor) and air handlers (indoor) separately
+- For exhaust fans: count kitchen exhaust + bath exhaust from mechanical or plumbing schedule
+- For floor area table: read EXACTLY what is printed — gross SF and net SF per floor or total
+- NEVER derive, calculate or estimate — only report numbers EXPLICITLY printed on this page
+- If a schedule table is present but you cannot read specific values clearly, return -1 for that field (NOT null) so we know the table exists but was unreadable
+- Return null ONLY if that data does not appear anywhere on this page at all
+
+Return a SINGLE compact JSON object. No markdown, no code fences, no prose. Keys:
+{\n  "projectName": string|null,\n  "dobJob": string|null,\n  "borough": "Manhattan"|"Brooklyn"|"Queens"|"Bronx"|"Staten Island"|null,\n  "address": string|null,\n  "gfa": number|null,\n  "nsf": number|null,\n  "footprint": number|null,\n  "floors": number|null,\n  "cellar": 0|1|null,\n  "units": number|null,\n  "f2f": number|null,\n  "perimeter": number|null,\n  "worktype": "new"|"conversion"|"gut"|"partial"|null,\n  "constructionType": "I-A"|"I-B"|"II-A"|"II-B"|"III-A"|"III-B"|"V"|null,\n  "occupancy": "R-2"|"R-3"|"B"|"A"|"M"|"I"|null,\n  "court": 0|1|null,\n  "windows": number|null,\n  "doorsEntry": number|null,\n  "doorsStair": number|null,\n  "doorsInterior": number|null,\n  "hvacCondensers": number|null,\n  "hvacIndoor": number|null,\n  "exhaustFans": number|null,\n  "elevators": number|null,\n  "floorAreas": [{"name": string, "gross": number|null, "net": number|null}]|null\n}\nJSON only. No extra text.``;
 
 function parseJSON(text){
   if(!text) return null;
@@ -343,6 +359,21 @@ function fillMetrics(p){
   if(gv('m-footprint')<=0 && gv('m-gfa')>0 && gv('m-floors')>0) setV('m-footprint',Math.round(gv('m-gfa')/gv('m-floors')));
   // NSF is never assumed: if the plans do not state it, it stays blank for per-floor entry.
   if(Array.isArray(p.floorAreas)) applyExtractedFloors(p.floorAreas);
+  const unreadable=[];
+  const FIELD_LABELS={gfa:'Total GFA',nsf:'Net SF',footprint:'Floor plate',floors:'Floors',
+    units:'Unit count',windows:'Window schedule',doorsEntry:'Entry doors',doorsStair:'Stair/fire doors',
+    doorsInterior:'Interior doors',hvacCondensers:'HVAC condensers',hvacIndoor:'HVAC indoor units',
+    exhaustFans:'Exhaust fans',elevators:'Elevators'};
+  const ID_MAP={gfa:'m-gfa',nsf:'m-nsf',footprint:'m-footprint',floors:'m-floors',units:'m-units',
+    windows:'m-windows',doorsEntry:'m-doors-entry',doorsStair:'m-doors-stair',
+    doorsInterior:'m-doors-int',hvacCondensers:'m-hvac-cu',hvacIndoor:'m-hvac-ah',
+    exhaustFans:'m-exhaust',elevators:'m-elev'};
+  Object.keys(FIELD_LABELS).forEach(k=>{
+    if(p[k]===-1){ setV(ID_MAP[k],''); unreadable.push(FIELD_LABELS[k]); }
+  });
+  const w=document.getElementById('unreadable-warn');
+  if(w){ if(unreadable.length){ w.innerHTML='<strong>\u26a0 AI saw these schedules but could not read them clearly \u2014 enter manually:</strong> '+unreadable.join(', '); w.classList.remove('hidden'); }
+         else { w.classList.add('hidden'); } }
 }
 
 function clearMetrics(){
@@ -422,7 +453,7 @@ function renderWages(){
 /* Per-division crew size & construction phase for scheduling.
    Key = division code (text before the "·"). */
 const DIV_SCHED={
-  '00':{crew:6,phase:1}, '00b':{crew:10,phase:2}, '00c':{crew:8,phase:3},
+  '00':{crew:6,phase:1}, '00b':{crew:10,phase:2,daysPerFloor:7}, '00c':{crew:8,phase:3},
   '02':{crew:7,phase:1}, '04':{crew:5,phase:2}, '06':{crew:6,phase:2},
   '05':{crew:4,phase:3}, '07':{crew:4,phase:3}, '08':{crew:5,phase:3},
   '21/22':{crew:7,phase:4}, '23':{crew:7,phase:4}, '26':{crew:7,phase:4},
@@ -565,7 +596,7 @@ function buildTakeoff(m){
 }
 
 /* ============ LABOR & SCHEDULE COMPUTATION ============ */
-function computeLabor(divs){
+function computeLabor(divs,m){
   const laborMult=+getV('labor-mult')||1;
   const rows=[];
   const phaseMap={};
@@ -580,7 +611,8 @@ function computeLabor(divs){
       const rate=(TRADE_RATE[it.trade]||90)*laborMult;
       hrs+=h; cost+=h*rate;
     });
-    const days=sched.crew>0 ? hrs/(sched.crew*HRS_PER_DAY) : 0;
+    let days=sched.crew>0 ? hrs/(sched.crew*HRS_PER_DAY) : 0;
+    if(sched.daysPerFloor && m && m.floors>0) days=Math.max(days, sched.daysPerFloor*m.floors);
     const row={code, name:d.div.split('\u00b7').slice(1).join('\u00b7').trim(), hrs, crew:sched.crew, days, cost, phase:sched.phase};
     rows.push(row);
     totHrs+=hrs; totCost+=cost;
@@ -716,7 +748,7 @@ function recalc(){
   }
 
   /* ----- Scope of Work: labor & schedule ----- */
-  const lab=computeLabor(divs);
+  const lab=computeLabor(divs,m);
   lastLabor=lab;
   renderLabor(lab);
 
