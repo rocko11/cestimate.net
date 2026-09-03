@@ -140,9 +140,7 @@ async function pdfToImages(file,onProg){
   const pdfjs=await ensurePdfJs();
   const buf=await file.arrayBuffer();
   const pdf=await pdfjs.getDocument({data:buf}).promise;
-  const MAXPAGES=40;
-  const N=Math.min(pdf.numPages,MAXPAGES);
-  const out=[];
+  const MAXPAGES=40; const N=Math.min(pdf.numPages,MAXPAGES); const out=[];
   for(let p=1;p<=N;p++){
     const page=await pdf.getPage(p);
     const base=page.getViewport({scale:1});
@@ -156,16 +154,10 @@ async function pdfToImages(file,onProg){
     try{
       const tc=await page.getTextContent({normalizeWhitespace:false,disableCombineTextItems:false});
       const lines={};
-      tc.items.forEach(item=>{
-        const y=Math.round(item.transform[5]);
-        if(!lines[y]) lines[y]=[];
-        lines[y].push({x:item.transform[4], str:item.str});
-      });
-      pageText=Object.keys(lines).sort((a,b)=>b-a).map(y=>
-        lines[y].sort((a,b)=>a.x-b.x).map(i=>i.str).join(' ')
-      ).join('\n');
-    }catch(e){ pageText=''; }
-    out.push({img, text:pageText});
+      tc.items.forEach(function(it){ const y=Math.round(it.transform[5]); if(!lines[y])lines[y]=[]; lines[y].push({x:it.transform[4],str:it.str}); });
+      pageText=Object.keys(lines).sort(function(a,b){return b-a;}).map(function(y){ return lines[y].sort(function(a,b){return a.x-b.x;}).map(function(i){return i.str;}).join(' '); }).join('\n');
+    }catch(e){}
+    out.push({img:img,text:pageText});
     if(onProg) onProg(p,N);
   }
   return out;
@@ -188,7 +180,7 @@ function imageToScaled(file){
 }
 
 // Send a batch of page-images for extraction: proxy first, direct fallback.
-async function callExtractor(parts, pageText){
+async function callExtractor(parts,pageText){
   // On the deployed site this goes through the Netlify function, which holds the key.
   let proxyErr=null;
   try{
@@ -215,9 +207,7 @@ async function callExtractor(parts, pageText){
   if(proxyErr) throw new Error(proxyErr);
 
   const content=parts.map(p=>({type:'image',source:{type:'base64',media_type:p.media_type,data:p.data}}));
-  if(pageText&&pageText.length>20){
-    content.push({type:'text',text:'EXTRACTED PAGE TEXT (machine-readable, use this for exact numbers from schedule tables):\n'+pageText.slice(0,8000)});
-  }
+  if(pageText&&pageText.length>20) content.push({type:'text',text:'EXTRACTED PAGE TEXT:\n'+pageText.slice(0,8000)});
   content.push({type:'text',text:EXTRACTION_PROMPT});
   const r2=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,messages:[{role:'user',content}]})});
@@ -239,17 +229,13 @@ async function extractFromImages(pages,onProg){
     const imgB64=(typeof page==='string')?page:(page&&page.img)||page;
     const rawText=(page&&typeof page==='object'&&page.text)||'';
     let t=null;
-    for(let attempt=0;attempt<2 && t===null;attempt++){
-      try{ t=await callExtractor([{media_type:'image/jpeg',data:imgB64}], rawText); }
-      catch(e){
-        const m=(e&&e.message)||String(e);
-        if(attempt===0 && /too long|timed out|502|504/i.test(m)) continue;
-        errs.push(m); break;
-      }
+    for(let attempt=0;attempt<2&&t===null;attempt++){
+      try{ t=await callExtractor([{media_type:'image/jpeg',data:imgB64}],rawText); }
+      catch(e){ const m=(e&&e.message)||String(e); if(attempt===0&&/too long|timed out|502|504/i.test(m)) continue; errs.push(m); break; }
     }
     if(t!==null){ const j=parseJSON(t); if(j) parsed.push(j); }
   }
-  if(!parsed.length && errs.length) throw new Error(errs[0]);
+  if(!parsed.length&&errs.length) throw new Error(errs[0]);
   return parsed;
 }
 
