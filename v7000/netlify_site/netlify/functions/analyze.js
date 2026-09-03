@@ -23,7 +23,7 @@ exports.handler = async (event) => {
   try { body = JSON.parse(event.body || '{}'); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) }; }
 
-  const { file, parts, prompt } = body;
+  const { file, parts, prompt, pageText } = body;
   if (!prompt || (!Array.isArray(parts) && !(file && file.data))) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Expected { parts:[{media_type,data}], prompt } or { file:{kind,media_type,data}, prompt }' }) };
   }
@@ -55,7 +55,11 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 1000,
-        messages: [{ role: 'user', content: [...content, { type: 'text', text: prompt }] }],
+        messages: [{ role: 'user', content: [
+          ...content,
+          ...(pageText && String(pageText).length > 20 ? [{type:'text', text:'EXTRACTED PAGE TEXT (machine-readable — use this for exact numbers from schedule tables):\n'+String(pageText).slice(0,8000)}] : []),
+          { type: 'text', text: prompt }
+        ] }],
       }),
     });
     clearTimeout(timer);
