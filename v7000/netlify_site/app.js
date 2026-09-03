@@ -329,7 +329,7 @@ CRITICAL READING RULES:
 - Return null ONLY if that data does not appear anywhere on this page at all
 
 Return a SINGLE compact JSON object. No markdown, no code fences, no prose. Keys:
-{\n  "projectName": string|null,\n  "dobJob": string|null,\n  "borough": "Manhattan"|"Brooklyn"|"Queens"|"Bronx"|"Staten Island"|null,\n  "address": string|null,\n  "gfa": number|null,\n  "nsf": number|null,\n  "footprint": number|null,\n  "floors": number|null,\n  "cellar": 0|1|null,\n  "units": number|null,\n  "f2f": number|null,\n  "perimeter": number|null,\n  "worktype": "new"|"conversion"|"gut"|"partial"|null,\n  "constructionType": "I-A"|"I-B"|"II-A"|"II-B"|"III-A"|"III-B"|"V"|null,\n  "occupancy": "R-2"|"R-3"|"B"|"A"|"M"|"I"|null,\n  "court": 0|1|null,\n  "windows": number|null,\n  "doorsEntry": number|null,\n  "doorsStair": number|null,\n  "doorsInterior": number|null,\n  "hvacCondensers": number|null,\n  "hvacIndoor": number|null,\n  "exhaustFans": number|null,\n  "elevators": number|null,\n  "floorAreas": [{"name": string, "gross": number|null, "net": number|null}]|null\n}\nJSON only. No extra text.``;
+{\n  "projectName": string|null,\n  "dobJob": string|null,\n  "borough": "Manhattan"|"Brooklyn"|"Queens"|"Bronx"|"Staten Island"|null,\n  "address": string|null,\n  "gfa": number|null,\n  "nsf": number|null,\n  "footprint": number|null,\n  "floors": number|null,\n  "cellar": 0|1|null,\n  "units": number|null,\n  "f2f": number|null,\n  "perimeter": number|null,\n  "worktype": "new"|"conversion"|"gut"|"partial"|null,\n  "constructionType": "I-A"|"I-B"|"II-A"|"II-B"|"III-A"|"III-B"|"V"|null,\n  "occupancy": "R-2"|"R-3"|"B"|"A"|"M"|"I"|null,\n  "court": 0|1|null,\n  "windows": number|null,\n  "doorsEntry": number|null,\n  "doorsStair": number|null,\n  "doorsInterior": number|null,\n  "hvacCondensers": number|null,\n  "hvacIndoor": number|null,\n  "exhaustFans": number|null,\n  "elevators": number|null,\n  "floorAreas": [{"name": string, "gross": number|null, "net": number|null}]|null\n}\nJSON only. No extra text.`;
 
 function parseJSON(text){
   if(!text) return null;
@@ -760,6 +760,39 @@ function recalc(){
 
   lastRows=exportRows;
   lastTotals={direct,gc,op,cont,grand,psf,gcPct,opPct,contPct,m,matTot,labTot,marginPct,sell};
+}
+
+/* ============ SEND TO DEAL BUILDER ============ */
+function sendToDealBuilder(){
+  if(!lastTotals||!lastTotals.grand){
+    alert('Run the takeoff first — click "Run takeoff →" to compute costs before sending to Deal Builder.');
+    return;
+  }
+  const m=lastTotals.m;
+  const byDiv={};
+  lastRows.filter(r=>!r.excl).forEach(r=>{
+    const code=r.div.split('·')[0].trim();
+    if(!byDiv[code]) byDiv[code]={div:r.div,items:[],total:0};
+    byDiv[code].items.push({name:r.name,qty:+(+r.qty).toFixed(1),unit:r.unit,price:r.price,mat:Math.round(r.mat),lab:Math.round(r.lab),ext:Math.round(r.ext)});
+    byDiv[code].total+=r.ext;
+  });
+  const payload={
+    _source:'cestimator',_version:1,
+    projectName:getV('m-name')||'',address:getV('m-name')||'',
+    gba:m.gfa||0,nba:m.nsf||0,units:m.units||0,
+    avgUnitSF:(m.units&&m.nsf)?Math.round(m.nsf/m.units):0,stories:m.floors||0,
+    hardCostTotal:Math.round(lastTotals.grand),hardCostDirect:Math.round(lastTotals.direct),
+    hardCostSF:m.gfa>0?Math.round(lastTotals.grand/m.gfa):0,
+    gcPct:lastTotals.gcPct||0,opPct:lastTotals.opPct||0,contPct:lastTotals.contPct||0,
+    totalLaborHrs:Math.round(lastLabor.totHrs||0),projWorkDays:Math.round(lastLabor.projWorkDays||0),
+    totalLaborCost:Math.round(lastLabor.totLaborCost||0),
+    divisions:Object.values(byDiv).map(d=>({code:d.div,total:Math.round(d.total),pct:lastTotals.direct>0?+(d.total/lastTotals.direct).toFixed(3):0,items:d.items})),
+    windows:m.windows||0,doorsEntry:m.doorsEntry||0,doorsStair:m.doorsStair||0,
+    doorsInt:m.doorsInt||0,hvacCU:m.cu||0,hvacAH:m.ah||0,exhaust:m.exh||0,elevators:m.elev||0,
+    exportedAt:new Date().toISOString()
+  };
+  try{ localStorage.setItem('cestimator_to_dealbuilder',JSON.stringify(payload)); }catch(e){}
+  window.open('https://roeipaz.com?from=cestimator','_blank');
 }
 
 /* ============ TEMPLATES: save / load an estimate as JSON ============ */
