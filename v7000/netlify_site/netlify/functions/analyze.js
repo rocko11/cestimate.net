@@ -1,10 +1,10 @@
-// Netlify serverless function — server-side proxy to the Anthropic API.
+→// Netlify serverless function — server-side proxy to the Anthropic API.
 // The API key lives in the ANTHROPIC_API_KEY environment variable (set in the
 // Netlify dashboard), never in the browser. The frontend posts one plan file
 // at a time plus the extraction prompt; this returns the model's text reply.
 //
 // Endpoint (after deploy):  /.netlify/functions/analyze
-const FN_VERSION = '2026-07-17b';
+const FN_VERSION = '2026-09-04a';
 exports.handler = async (event) => {
   // Health check: GET returns the deployed function version (proves what's live).
   if (event.httpMethod === 'GET') {
@@ -54,7 +54,7 @@ exports.handler = async (event) => {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
+        max_tokens: 2000,
         messages: [{ role: 'user', content: [
           ...content,
           ...(pageText && String(pageText).length > 20 ? [{type:'text', text:'EXTRACTED PAGE TEXT (machine-readable — use this for exact numbers from schedule tables):\n'+String(pageText).slice(0,8000)}] : []),
