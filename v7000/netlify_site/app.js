@@ -668,7 +668,13 @@ function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').r
 
 function setOv(id,field,val){
   const o=overrides[id]||(overrides[id]={});
-  if(field==='excl') o.excl=!o.excl; else o[field]=(val===''?undefined:+val);
+  if(field==='excl'){
+    o.excl=!o.excl;
+  } else if(val===''){
+    o[field]=null; // user cleared — keep blank, don't fall back to computed
+  } else {
+    o[field]=+val;
+  }
   recalc();
 }
 function addCustomRow(){
@@ -711,8 +717,8 @@ function recalc(){
     d.items.forEach(it=>{
       const id=slug(d.div.split('·')[0])+'-'+slug(it.n);
       const o=overrides[id]||{};
-      const qty=(o.qty!==undefined?o.qty:it.qty);
-      const price=(o.p!==undefined?o.p:it.p);
+      const qty=(o.qty!=null?o.qty:(o.qty===null?0:it.qty));
+      const price=(o.p!=null?o.p:(o.p===null?0:it.p));
       const excl=!!o.excl;
       const ext=excl?0:(it.fixed ? qty*price : qty*price*locMult);
       // material / labor split: labor = hours × loaded wage; material = remainder
@@ -728,9 +734,9 @@ function recalc(){
       html+=`<tr${excl?' style="opacity:.4"':''}>
         <td>${esc(it.n)}${it.custom?' <span class="ai-badge">added</span>':''}</td>
         <td class="basis">${esc(it.basis||'')}</td>
-        <td class="num"><input class="cell" type="number" step="any" value="${qty}" oninput="setOv('${id}','qty',this.value)"></td>
+        <td class="num"><input class="cell" type="number" step="any" value="${o.qty===null?'':qty}" oninput="setOv('${id}','qty',this.value)"></td>
         <td>${esc(it.u)}</td>
-        <td class="num"><input class="cell" type="number" step="any" value="${price}" oninput="setOv('${id}','p',this.value)"></td>
+        <td class="num"><input class="cell" type="number" step="any" value="${o.p===null?'':price}" oninput="setOv('${id}','p',this.value)"></td>
         <td class="num">${fmtM(mat)}</td>
         <td class="num">${fmtM(lab)}</td>
         <td class="num"><strong>${fmtM(ext)}</strong>${rm}</td>
