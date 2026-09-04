@@ -529,8 +529,8 @@ function buildTakeoff(m){
       {n:'Concrete superstructure — frame, slabs & roof deck', basis:'GFA SF · mandatory $45/SF', qty:m.gfa, u:'SF', p:45, fixed:true, mh:0.30, trade:'concrete', src:'Mandatory $45/SF (fixed)'},
     ]});
     divs.push({div:'00c · Exterior Envelope', items:[
-      {n:'Exterior facade (new skin)', basis:'≈0.85 × GFA', qty:m.gfa*0.85, u:'SF', p:55, mh:0.30, trade:'glazier', src:'Curtain wall/masonry/panel'},
-      {n:'Air/vapor barrier & insulation', basis:'≈0.85 × GFA', qty:m.gfa*0.85, u:'SF', p:16, mh:0.05, trade:'insulation', src:'Continuous insulation'},
+      {n:'Exterior facade (new skin)', basis:'Perim × ht × floors × 90%', qty:(m.perim>0?m.perim:Math.sqrt(m.footprint)*4)*m.f2f*m.floors*0.90, u:'SF', p:55, mh:0.30, trade:'glazier', src:'Curtain wall/masonry/panel'},
+      {n:'Air/vapor barrier & insulation', basis:'Perim × ht × floors × 90%', qty:(m.perim>0?m.perim:Math.sqrt(m.footprint)*4)*m.f2f*m.floors*0.90, u:'SF', p:16, mh:0.05, trade:'insulation', src:'Continuous insulation'},
     ]});
   }else{
     divs.push({div:'02 · Demolition', items:[
