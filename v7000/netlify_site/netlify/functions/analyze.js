@@ -1,4 +1,4 @@
-→// Netlify serverless function — server-side proxy to the Anthropic API.
+// Netlify serverless function — server-side proxy to the Anthropic API.
 // The API key lives in the ANTHROPIC_API_KEY environment variable (set in the
 // Netlify dashboard), never in the browser. The frontend posts one plan file
 // at a time plus the extraction prompt; this returns the model's text reply.
