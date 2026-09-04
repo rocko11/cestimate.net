@@ -314,28 +314,23 @@ function showExtractNote(ok,total,missing){
   el.innerHTML=h;
 }
 
-const EXTRACTION_PROMPT = `You are a senior NYC construction estimator performing a precise takeoff from approved DOB building plans. Your job is to read EVERY piece of printed text — including the title block, zoning analysis table, and ALL schedule tables.
+const EXTRACTION_PROMPT = `You are a senior NYC construction estimator. Read EVERY piece of printed text — title block, zoning table, and ALL schedule tables.
+
+AREA DEFINITIONS — READ CAREFULLY:
+- gfa = TOTAL building Gross Floor Area (ALL floors combined). "Total GFA: 71,000 SF" → gfa=71000. NEVER put a per-floor SF here.
+- footprint = ONE floor gross area. "Typical floor 8,000 SF" → footprint=8000.
+- nsf = TOTAL building Net SF (all floors). floors = above-grade story count.
+- Per-floor area table on plan: SUM all rows → gfa. One row value → footprint.
+- NEVER multiply footprint×floors — read the printed total.
 
 UNIT COUNT — HIGHEST PRIORITY:
-- Search for ANY table that shows dwelling unit types (Studio, 1BR, 2BR, 3BR, 1-Bed, 2-Bed, Apt, Unit, DU)
-- Look for columns: QTY, NO., COUNT, #, TOTAL, UNITS adjacent to unit type labels
-- Check the ZONING ANALYSIS TABLE — it always lists total dwelling units (DU) or residential units
-- Check GENERAL NOTES and TITLE BLOCK — total unit count is often printed there
-- Check floor plans — count apartment entry doors or unit labels (A, B, C, 1A, 1B, etc.)
-- Sum ALL unit types: if "2BR: 20, 1BR: 34, 3BR: 11" then units = 65
-- NEVER return units=null if ANY unit count or unit mix data appears on the page
+- Find any table with unit types (Studio/1BR/2BR/3BR/Apt/Unit/DU), read QTY/COUNT columns.
+- Check Zoning Analysis Table for total DU, check title block and general notes.
+- Sum all types: "2BR:20 + 1BR:34 + 3BR:11" → units=65. Never return null if any count found.
 
-SCHEDULE READING RULES:
-- Read EVERY row of EVERY schedule table — do not skip rows with small text
-- For window schedules: read QTY/NO column for each type row, sum ALL rows
-- For door schedules: entry/apartment doors vs stair/fire doors vs interior doors
-- For HVAC: count condensing units (outdoor) and air handlers (indoor) separately
-- For floor area table: read EXACTLY what is printed — gross SF and net SF per floor or total
-- NEVER derive or estimate — only report numbers EXPLICITLY printed on this page
-- If a table is present but values are unreadable, return -1 for that field
-- Return null ONLY if data does not appear anywhere on this page
+SCHEDULES: read every row, no skipping. Windows: sum QTY all rows. Doors: 3 separate counts (entry/stair/interior). HVAC: CU outdoor + AH indoor separate. Unreadable table → -1. Not present → null.
 
-Return a SINGLE compact JSON object. No markdown, no code fences, no prose. Keys:
+Return ONE JSON object, no markdown:
 {"projectName":string|null,"dobJob":string|null,"borough":"Manhattan"|"Brooklyn"|"Queens"|"Bronx"|"Staten Island"|null,"address":string|null,"gfa":number|null,"nsf":number|null,"footprint":number|null,"floors":number|null,"cellar":0|1|null,"units":number|null,"f2f":number|null,"perimeter":number|null,"worktype":"new"|"conversion"|"gut"|"partial"|null,"constructionType":"I-A"|"I-B"|"II-A"|"II-B"|"III-A"|"III-B"|"V"|null,"occupancy":"R-2"|"R-3"|"B"|"A"|"M"|"I"|null,"court":0|1|null,"windows":number|null,"doorsEntry":number|null,"doorsStair":number|null,"doorsInterior":number|null,"hvacCondensers":number|null,"hvacIndoor":number|null,"exhaustFans":number|null,"elevators":number|null,"floorAreas":[{"name":string,"gross":number|null,"net":number|null}]|null}
 JSON only. No extra text.`;
 
