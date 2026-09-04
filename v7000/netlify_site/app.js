@@ -316,12 +316,13 @@ function showExtractNote(ok,total,missing){
 
 const EXTRACTION_PROMPT = `You are a senior NYC construction estimator. Read EVERY piece of printed text — title block, zoning table, and ALL schedule tables.
 
-AREA DEFINITIONS — READ CAREFULLY:
-- gfa = TOTAL building Gross Floor Area (ALL floors combined). "Total GFA: 71,000 SF" → gfa=71000. NEVER put a per-floor SF here.
-- footprint = ONE floor gross area. "Typical floor 8,000 SF" → footprint=8000.
-- nsf = TOTAL building Net SF (all floors). floors = above-grade story count.
-- Per-floor area table on plan: SUM all rows → gfa. One row value → footprint.
-- NEVER multiply footprint×floors — read the printed total.
+AREA DEFINITIONS — CRITICAL (wrong values here corrupt ALL cost calculations):
+- gfa = TOTAL Gross Floor Area of the ENTIRE BUILDING. ANY text saying "GFA", "Gross Floor Area", "Total Area", or "Zoning Floor Area" with a number → that number is gfa. NEVER leave gfa null if any total building area is shown.
+- footprint = gross area of ONE SINGLE FLOOR (floor plate only). Only use for per-floor area.
+- nsf = TOTAL Net SF of the ENTIRE BUILDING (all floors). floors = above-grade story count.
+- CRITICAL: "GFA: 71,000 SF" + "Floor: 8,000 SF" → gfa=71000, footprint=8000. NEVER put a large total in footprint.
+- If only ONE area number visible and unsure if total or per-floor → put it in gfa (safer).
+- Per-floor table: SUM all rows → gfa. One row value → footprint.
 
 UNIT COUNT — HIGHEST PRIORITY:
 - Find any table with unit types (Studio/1BR/2BR/3BR/Apt/Unit/DU), read QTY/COUNT columns.
@@ -497,8 +498,13 @@ function metrics(){
   };
   // Cross-derive area metrics so area-based lines (e.g. $45/SF superstructure)
   // never read $0 just because one field was left blank.
-  if(g.gfa<=0 && g.footprint>0 && g.floors>0) g.gfa=g.footprint*g.floors;
-  if(g.footprint<=0 && g.gfa>0 && g.floors>0) g.footprint=g.gfa/g.floors;
+  // Only cross-derive GFA if result is plausible — footprint>20k SF means Claude
+  // likely misread the total building area as footprint; skip the multiply.
+  if(g.gfa<=0 && g.footprint>0 && g.floors>0 && g.footprint<=20000){
+    var derived=g.footprint*g.floors;
+    if(derived<=150000) g.gfa=derived;
+  }
+  if(g.footprint<=0 && g.gfa>0 && g.floors>0) g.footprint=Math.round(g.gfa/g.floors);
   // NSF is never assumed. If missing, net-based lines price at 0 and a warning shows.
   return g;
 }
