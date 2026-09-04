@@ -806,8 +806,17 @@ function sendToDealBuilder(){
     doorsInt:m.doorsInt||0,hvacCU:m.cu||0,hvacAH:m.ah||0,exhaust:m.exh||0,elevators:m.elev||0,
     exportedAt:new Date().toISOString()
   };
-  try{ localStorage.setItem('cestimator_to_dealbuilder',JSON.stringify(payload)); }catch(e){}
-  window.open('https://roeipaz.com?from=cestimator','_blank');
+  // BroadcastChannel works across tabs in same browser without cross-origin restrictions
+  var ch = new BroadcastChannel('cestimator_dealbuilder');
+  // Open Deal Builder first, then broadcast after a short delay so it has time to start listening
+  var dbTab = window.open('https://roeipaz.com?from=cestimator','_blank');
+  // Also store in sessionStorage as fallback for slow loads
+  try{ sessionStorage.setItem('cestimator_to_dealbuilder', JSON.stringify(payload)); }catch(e){}
+  // Broadcast immediately and again after delays to catch the page when it's ready
+  var msg = JSON.stringify(payload);
+  ch.postMessage(msg);
+  setTimeout(function(){ ch.postMessage(msg); }, 800);
+  setTimeout(function(){ ch.postMessage(msg); ch.close(); }, 2000);
 }
 
 /* ============ TEMPLATES: save / load an estimate as JSON ============ */
