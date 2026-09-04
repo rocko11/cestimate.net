@@ -510,7 +510,7 @@ function metrics(){
 }
 
 // PARTFACTOR (LF partition per SF floor) and wall height factor
-const PARTFACTOR=0.95, WALLHT_RATIO=0.83; // clear wall ht ≈ 0.83 × f2f
+const PARTFACTOR=0.30, WALLHT_RATIO=0.83; // residential 0.30 LF partition/SF net; clear wall ht ≈ 0.83 × f2f
 
 // Each item now carries: mh (man-hours per unit) and trade (for labor rate).
 function buildTakeoff(m){
