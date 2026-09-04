@@ -1,4 +1,4 @@
-/* ============ STATE ============ */
+→→/* ============ STATE ============ */
 let files = [];  // entries: {file,name,size,images:[b64]|null,compBytes,status,msg}
 let lastRows = [], lastTotals = {};
 let lastLabor = {rows:[], phases:[], totHrs:0, totLaborCost:0, projWorkDays:0};
@@ -98,8 +98,347 @@ async function postProxy(payload){
     : ('network error contacting the server'+(last&&last.err?': '+last.err.message:'')));
   e.allFailed=true; throw e;
 }
-const MAX_DIM=1800;        // px — raised for readable schedule table text
-const JPEG_Q=0.82;         // raised so small schedule text is legible
+const MAX_DIM=2400;        // px — raised for readable schedule table text
+const JPEG_Q=0.92;         // raised so small schedule text is legible
+const BATCH_BUDGET=3.2e6;  // ~3.2 MB of base64 per request (safely under Netlify's 6 MB)
+
+let _pdfjs=null;
+function loadScript(src){
+  return new Promise((res,rej)=>{
+    const el=document.createElement('script');
+    el.src=src;
+    el.onload=()=>res();
+    el.onerror=()=>{ el.remove(); rej(new Error('failed: '+src)); };  // remove failed tag
+    document.head.appendChild(el);
+  });
+}
+function ensurePdfJs(){
+  if(_pdfjs) return _pdfjs;
+  _pdfjs=(async()=>{
+    if(window.pdfjsLib) return window.pdfjsLib;
+    const CDN_LIB='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    const CDN_WORKER='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    // main library: local copy first, CDN if it isn't there
+    try{ await loadScript('vendor/pdf.min.js'); }
+    catch(e){ await loadScript(CDN_LIB); }
+    if(!window.pdfjsLib) throw new Error('PDF library did not load');
+    // worker: never assume the local file exists - probe it, else use the CDN
+    let worker=CDN_WORKER;
+    try{
+      const r=await fetch('vendor/pdf.worker.min.js',{method:'HEAD'});
+      if(r.ok) worker='vendor/pdf.worker.min.js';
+    }catch(e){ /* keep CDN */ }
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc=worker;
+    return window.pdfjsLib;
+  })();
+  return _pdfjs;
+}
+
+// Render each PDF page to a downscaled JPEG (base64). Shrinks an 18 MB plan set
+// to a few hundred KB per page, so size is no longer a barrier.
+async function pdfToImages(file,onProg){
+  const pdfjs=await ensurePdfJs();
+  const buf=await file.arrayBuffer();
+  const pdf=await pdfjs.getDocument({data:buf}).promise;
+  const MAXPAGES=40; const N=Math.min(pdf.numPages,MAXPAGES); const out=[];
+  for(let p=1;p<=N;p++){
+    const page=await pdf.getPage(p);
+    const base=page.getViewport({scale:1});
+    const scale=Math.min(MAX_DIM/Math.max(base.width,base.height),2)||1;
+    const vp=page.getViewport({scale});
+    const canvas=document.createElement('canvas');
+    canvas.width=Math.ceil(vp.width); canvas.height=Math.ceil(vp.height);
+    await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+    const img=canvas.toDataURL('image/jpeg',JPEG_Q).split(',')[1];
+    let pageText='';
+    try{
+      const tc=await page.getTextContent({normalizeWhitespace:false,disableCombineTextItems:false});
+      const lines={};
+      tc.items.forEach(function(it){ const y=Math.round(it.transform[5]); if(!lines[y])lines[y]=[]; lines[y].push({x:it.transform[4],str:it.str}); });
+      pageText=Object.keys(lines).sort(function(a,b){return b-a;}).map(function(y){ return lines[y].sort(function(a,b){return a.x-b.x;}).map(function(i){return i.str;}).join(' '); }).join('\n');
+    }catch(e){}
+    out.push({img:img,text:pageText});
+    if(onProg) onProg(p,N);
+  }
+  return out;
+}
+
+// Downscale an uploaded image to keep the request small.
+function imageToScaled(file){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.onload=()=>{
+      const scale=Math.min(MAX_DIM/Math.max(img.width,img.height),1)||1;
+      const c=document.createElement('canvas');
+      c.width=Math.ceil(img.width*scale); c.height=Math.ceil(img.height*scale);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      resolve(c.toDataURL('image/jpeg',JPEG_Q).split(',')[1]);
+    };
+    img.onerror=()=>reject(new Error('image decode failed'));
+    img.src=URL.createObjectURL(file);
+  });
+}
+
+// Send a batch of page-images for extraction: proxy first, direct fallback.
+async function callExtractor(parts,pageText){
+  // On the deployed site this goes through the Netlify function, which holds the key.
+  let proxyErr=null;
+  try{
+    // Send BOTH shapes so any deployed version of the function works:
+    //  - new function reads `parts`
+    //  - older function reads `file` (we mirror the first page into it)
+    const first=parts&&parts[0];
+    const payload={parts,prompt:EXTRACTION_PROMPT,pageText:pageText||''};
+    if(first) payload.file={kind:'image',media_type:first.media_type||'image/jpeg',data:first.data};
+    const r=await postProxy(payload);
+    if(r.ok){
+      const d=await r.json();
+      if(d&&typeof d.text==='string') return d.text;
+      proxyErr='the server returned no text';
+    }else if(r.status===404){
+      proxyErr=null;                       // no function deployed -> try a direct call
+    }else if(r.status===502||r.status===504){
+      proxyErr='the analysis timed out on the server';
+    }else{
+      let msg=''; try{ const e=await r.json(); msg=(e&&e.error)||''; }catch(_){}
+      proxyErr=msg||('server error '+r.status);
+    }
+  }catch(e){ proxyErr=(e&&e.message)?('network error: '+e.message):null; }
+  if(proxyErr) throw new Error(proxyErr);
+
+  const content=parts.map(p=>({type:'image',source:{type:'base64',media_type:p.media_type,data:p.data}}));
+  if(pageText&&pageText.length>20) content.push({type:'text',text:'EXTRACTED PAGE TEXT:\n'+pageText.slice(0,8000)});
+  content.push({type:'text',text:EXTRACTION_PROMPT});
+  const r2=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,messages:[{role:'user',content}]})});
+  if(!r2.ok){
+    let m=''; try{ const e=await r2.json(); m=(e&&e.error&&e.error.message)||''; }catch(_){}
+    throw new Error(m||('API '+r2.status+' - no backend function found. Deploy to Netlify with ANTHROPIC_API_KEY set.'));
+  }
+  const d2=await r2.json();
+  return (d2.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n');
+}
+
+// Convert a file to downscaled images, batch under the size budget, extract each.
+// Returns an array of parsed objects (merged later across all files).
+async function extractFromImages(pages,onProg){
+  const parsed=[]; const errs=[];
+  for(let i=0;i<pages.length;i++){
+    if(onProg) onProg(i+1,pages.length);
+    const page=pages[i];
+    const imgB64=(typeof page==='string')?page:(page&&page.img)||page;
+    const rawText=(page&&typeof page==='object'&&page.text)||'';
+    let t=null;
+    for(let attempt=0;attempt<2&&t===null;attempt++){
+      try{ t=await callExtractor([{media_type:'image/jpeg',data:imgB64}],rawText); }
+      catch(e){ const m=(e&&e.message)||String(e); if(attempt===0&&/too long|timed out|502|504/i.test(m)) continue; errs.push(m); break; }
+    }
+    if(t!==null){ const j=parseJSON(t); if(j) parsed.push(j); }
+  }
+  if(!parsed.length&&errs.length) throw new Error(errs[0]);
+  return parsed;
+}
+
+
+async function analyzePlans(){
+  show('analyzing'); hide('step-1');
+  clearMetrics(); // never let a previous project's / example values carry into a new upload
+  const msg=document.getElementById('analyze-msg');
+  const sub=document.getElementById('analyze-sub');
+  const results=[]; let lastErr='';
+  try{
+    // Files were already compressed to page-images on upload; analyze each,
+    // then merge. Schedule sheets, cover sheets and floor plans often live in
+    // different files, so per-file extraction + merge is the most reliable.
+    let done=0;
+    for(let i=0;i<files.length;i++){
+      const entry=files[i];
+      if(entry.status!=='done' || !entry.images || !entry.images.length) continue;
+      done++;
+      if(msg) msg.textContent=`Reading file ${i+1} of ${files.length}…`;
+      if(sub) sub.textContent=entry.name+' — scanning every page & schedule';
+      try{
+        const arr=await extractFromImages(entry.images,function(pg,n){
+          if(sub) sub.textContent=entry.name+' - reading page '+pg+' of '+n;
+        });
+        arr.forEach(x=>results.push(x));
+      }catch(e){ lastErr=(e&&e.message)||String(e); }
+    }
+    if(!results.length) throw new Error(lastErr || 'no pages could be read');
+    const {merged,missing}=mergeExtractions(results);
+    fillMetrics(merged);
+    showExtractNote(results.length, files.length, missing);
+    hide('analyzing'); show('step-2'); setChip(2);
+  }catch(err){
+    hide('analyzing'); show('step-1');
+    showBanner('Could not read the plans - ' + err.message);
+    alert('Could not read the plans.\n\nReason: ' + err.message);
+    manualEntry();
+  }
+}
+
+/* Merge per-file extractions: counts take the MAX seen on any sheet (a schedule
+   usually appears once), identifiers take the first non-empty, flags OR together.
+   Anything still null after merging is reported to the user as "not found". */
+function mergeExtractions(list){
+  const numMax=['gfa','nsf','footprint','floors','units','perimeter','windows',
+    'doorsEntry','doorsStair','doorsInterior','hvacCondensers','hvacIndoor','exhaustFans','elevators'];
+  const firstStr=['projectName','dobJob','borough','worktype','constructionType','occupancy'];
+  const flags=['cellar','court'];
+  const m={};
+  numMax.forEach(k=>{ let v=null; list.forEach(o=>{ const x=o&&o[k];
+    if(typeof x==='number'&&!Number.isNaN(x)){
+      if(x===-1){ if(v==null) v=-1; }
+      else v=(v==null||v===-1)?x:Math.max(v,x);
+    }
+  }); m[k]=v; });
+  firstStr.forEach(k=>{ let v=''; list.forEach(o=>{ if(!v&&o&&typeof o[k]==='string'&&o[k].trim()) v=o[k].trim(); }); m[k]=v||null; });
+  flags.forEach(k=>{ let v=null; list.forEach(o=>{ const x=o&&o[k]; if(x===0||x===1) v=(v==null)?x:Math.max(v,x); }); m[k]=v; });
+  let f2f=null; list.forEach(o=>{ if(f2f==null&&typeof (o&&o.f2f)==='number') f2f=o.f2f; }); m.f2f=f2f;
+  let fa=null; list.forEach(o=>{ const x=o&&o.floorAreas; if(Array.isArray(x)&&x.length&&(!fa||x.length>fa.length)) fa=x; }); m.floorAreas=fa;
+  const LBL={gfa:'Total GFA',nsf:'Net SF',footprint:'Footprint/floor',floors:'# Floors',
+    units:'# Units',perimeter:'Perimeter',f2f:'Floor-to-floor',windows:'Windows',
+    doorsEntry:'Entry doors',doorsStair:'Stair/fire doors',doorsInterior:'Interior doors',
+    hvacCondensers:'HVAC condensers',hvacIndoor:'HVAC indoor units',exhaustFans:'Exhaust fans',elevators:'Elevators'};
+  const missing=Object.keys(LBL).filter(k=>m[k]==null).map(k=>LBL[k]);
+  return {merged:m, missing};
+}
+
+function showExtractNote(ok,total,missing){
+  const el=document.getElementById('extract-note');
+  if(!el) return;
+  let h=`<span class="ai-badge">AI-extracted</span> &nbsp;Read <strong>${ok} of ${total}</strong> file(s), scanning every page and schedule. Review the values and correct anything off — purple fields were auto-filled; all are editable.`;
+  if(missing&&missing.length){
+    h+=`<br><br><strong style="color:#b5340b">Not found on the sheets provided:</strong> ${missing.join(', ')}.<br>Enter these manually below, or go back and also upload the specific schedule sheet that lists them (e.g. window/door schedule, MEP equipment schedule).`;
+  }
+  el.innerHTML=h;
+}
+
+const EXTRACTION_PROMPT = `You are a senior NYC construction estimator performing a precise takeoff from approved DOB building plans. Your job is to read EVERY piece of printed text — including the title block, zoning analysis table, and ALL schedule tables.
+
+UNIT COUNT — HIGHEST PRIORITY:
+- Search for ANY table, matrix, or list that shows dwelling unit types (Studio, 1BR, 2BR, 3BR, 1-Bed, 2-Bed, Apt, Unit, DU, etc.)
+- Look for columns labeled: QTY, NO., COUNT, #, TOTAL, UNITS, or any number column adjacent to unit type labels
+- Check the ZONING ANALYSIS TABLE — it always lists total dwelling units (DU) or residential units
+- Check GENERAL NOTES and TITLE BLOCK — total unit count is often printed there
+- Check EVERY FLOOR PLAN if shown — count apartment entry doors or unit labels (A, B, C, 1A, 1B, etc.)
+- Sum ALL unit types: if "2BR: 20, 1BR: 34, 3BR: 11" then units = 65
+- NEVER return units=null if ANY unit count or unit mix data appears anywhere on the page
+
+SCHEDULE READING RULES:
+- Read EVERY row of EVERY schedule table — do not skip rows with small text
+- For window schedules: read QTY/NO column for each type row, sum ALL rows
+- For door schedules: entry/apartment doors vs stair/fire doors vs interior doors
+- For HVAC: count condensing units (outdoor) and air handlers (indoor) separately
+- For floor area table: read EXACTLY what is printed — gross SF and net SF per floor or total
+- NEVER derive, calculate or estimate — only report numbers EXPLICITLY printed on this page
+- If a schedule table is present but values are unreadable, return -1 for that field
+- Return null ONLY if that data does not appear anywhere on this page at all
+
+Return a SINGLE compact JSON object. No markdown, no code fences, no prose. Keys:
+{"projectName":string|null,"dobJob":string|null,"borough":"Manhattan"|"Brooklyn"|"Queens"|"Bronx"|"Staten Island"|null,"address":string|null,"gfa":number|null,"nsf":number|null,"footprint":number|null,"floors":number|null,"cellar":0|1|null,"units":number|null,"f2f":number|null,"perimeter":number|null,"worktype":"new"|"conversion"|"gut"|"partial"|null,"constructionType":"I-A"|"I-B"|"II-A"|"II-B"|"III-A"|"III-B"|"V"|null,"occupancy":"R-2"|"R-3"|"B"|"A"|"M"|"I"|null,"court":0|1|null,"windows":number|null,"doorsEntry":number|null,"doorsStair":number|null,"doorsInterior":number|null,"hvacCondensers":number|null,"hvacIndoor":number|null,"exhaustFans":number|null,"elevators":number|null,"floorAreas":[{"name":string,"gross":number|null,"net":number|null}]|null}
+JSON only. No extra text.`;======= */
+let files = [];  // entries: {file,name,size,images:[b64]|null,compBytes,status,msg}
+let lastRows = [], lastTotals = {};
+let lastLabor = {rows:[], phases:[], totHrs:0, totLaborCost:0, projWorkDays:0};
+
+/* ============ UPLOAD HANDLING ============ */
+const drop = document.getElementById('drop');
+const fileinput = document.getElementById('fileinput');
+drop.onclick = () => fileinput.click();
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('hover'); };
+drop.ondragleave = () => drop.classList.remove('hover');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('hover'); addFiles(e.dataTransfer.files); };
+fileinput.onchange = e => addFiles(e.target.files);
+
+function addFiles(list){
+  try{
+    const arr=Array.from(list||[]);
+    if(!arr.length) return;
+    for(const f of arr){
+      const entry={file:f,name:f.name,size:f.size,images:null,compBytes:0,status:'pending',msg:''};
+      files.push(entry);
+      compressEntry(entry).then(renderFiles).catch(err=>{
+        entry.status='error'; entry.msg=(err&&err.message)||'could not prepare file'; renderFiles();
+      });
+    }
+    renderFiles();  // show the file immediately, before compression finishes
+  }catch(err){ showBanner('Could not add that file: '+((err&&err.message)||err)); }
+}
+function showBanner(text){
+  const el=document.getElementById('err-banner');
+  if(el){ el.textContent=text; el.classList.remove('hidden'); }
+  else { alert(text); }
+}
+
+// Compress on upload: render PDF pages / images to downscaled JPEGs so the
+// payload is well under the 4 MB request limit before analysis ever runs.
+async function compressEntry(entry){
+  try{
+    const f=entry.file;
+    let imgs=[];
+    if(f.type==='application/pdf') imgs=await pdfToImages(f);
+    else if(f.type.startsWith('image/')) imgs=[await imageToScaled(f)];
+    else { entry.status='error'; entry.msg='unsupported type (use PDF/PNG/JPG)'; return; }
+    entry.images=imgs;
+    entry.compBytes=imgs.reduce((s,b)=>s+Math.ceil(b.length*0.75),0); // base64 → bytes
+    entry.status='done';
+  }catch(e){ entry.status='error'; entry.msg=(e&&e.message)||'could not compress'; }
+}
+
+function renderFiles(){
+  const el = document.getElementById('filelist');
+  el.innerHTML = files.map((e,i)=>{
+    const mb = (e.size/1048576).toFixed(1);
+    let tail;
+    if(e.status==='pending') tail = `<span style="color:#928f86">(${mb} MB · compressing…)</span>`;
+    else if(e.status==='error') tail = `<span style="color:#b5340b">(${mb} MB · ${e.msg})</span>`;
+    else { const pages=(e.images||[]).length; const c=(e.compBytes/1048576).toFixed(1);
+           tail = `<span style="color:#0F7A5A">(${mb} MB → ${c} MB · ${pages} page${pages===1?'':'s'} ready ✓)</span>`; }
+    return `<div class="fileitem">📄 ${e.name} ${tail}<button class="rm" onclick="removeFile(${i})">×</button></div>`;
+  }).join('');
+  const anyReady = files.some(e=>e.status==='done');
+  const btn=document.getElementById('analyze-btn');
+  if(btn) btn.disabled = !anyReady;
+}
+function removeFile(i){ files.splice(i,1); renderFiles(); }
+
+function fileToBase64(file){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(r.result.split(',')[1]);
+    r.onerror=rej; r.readAsDataURL(file);
+  });
+}
+
+/* ============ AI PLAN ANALYSIS ============ */
+/* NOTE: the AI plan-reading step calls the Anthropic API. That call only
+   succeeds in an environment that provides credentials/proxying (e.g. running
+   inside Claude, or behind your own backend that injects an API key). When the
+   call is unavailable the app cleanly falls back to manual entry, and the full
+   takeoff + labor/schedule engine still works. See README for hosting notes. */
+/* When deployed to Netlify with the analyze function, calls go through the
+   backend proxy (which holds the API key). Large PDFs are rendered to downscaled
+   JPEGs in the browser and sent in batches that stay under the request limit, so
+   you can upload big plan sets without the "file too large" error. */
+const PROXY_URL='/.netlify/functions/analyze';
+const PROXY_ALTS=['/.netlify/functions/analyze','/api/analyze','/.netlify/functions/analyze/'];
+async function postProxy(payload){
+  let last=null;
+  for(const url of PROXY_ALTS){
+    try{
+      const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      if(r.status===404){ last={status:404,url}; continue; }   // try the next path
+      return r;
+    }catch(e){ last={err:e,url}; }
+  }
+  const e=new Error(last&&last.status===404
+    ? 'could not reach the analyze function at any known path'
+    : ('network error contacting the server'+(last&&last.err?': '+last.err.message:'')));
+  e.allFailed=true; throw e;
+}
+const MAX_DIM=2400;        // px — raised for readable schedule table text
+const JPEG_Q=0.92;         // raised so small schedule text is legible
 const BATCH_BUDGET=3.2e6;  // ~3.2 MB of base64 per request (safely under Netlify's 6 MB)
 
 let _pdfjs=null;
