@@ -163,6 +163,10 @@ input.cell{
   border-radius:6px;background:#FBFDFE;outline:none;
   font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;color:var(--ink);
 }
+/* Remove spinner arrows — QTY boxes use type=text so not needed, but keep for any number inputs */
+input.cell[type=number]::-webkit-inner-spin-button,
+input.cell[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+input.cell[type=number]{-moz-appearance:textfield}
 input.cell:focus{border-color:var(--blue);background:#fff;box-shadow:0 0 0 2px rgba(29,111,184,.14)}
 td .rm{margin-left:6px;color:#9DB2C4;background:none;border:none;cursor:pointer;font-weight:700}
 td .rm:hover{color:var(--red)}
