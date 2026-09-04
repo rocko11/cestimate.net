@@ -734,7 +734,7 @@ function recalc(){
       html+=`<tr${excl?' style="opacity:.4"':''}>
         <td>${esc(it.n)}${it.custom?' <span class="ai-badge">added</span>':''}</td>
         <td class="basis">${esc(it.basis||'')}</td>
-        <td class="num"><input class="cell" type="number" step="any" value="${o.qty===null?'':qty}" oninput="setOv('${id}','qty',this.value)"></td>
+        <td class="num"><input class="cell" type="text" inputmode="decimal" value="${o.qty===null?'':qty}" oninput="setOv('${id}','qty',this.value)" onfocus="this.select()" onclick="this.select()"></td>
         <td>${esc(it.u)}</td>
         <td class="num"><input class="cell" type="number" step="any" value="${o.p===null?'':price}" oninput="setOv('${id}','p',this.value)"></td>
         <td class="num">${fmtM(mat)}</td>
