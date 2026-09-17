@@ -1314,70 +1314,245 @@ async function generateAIImage(){
   const cap=document.getElementById('ai-render-caption');
   const btn=document.getElementById('regen-btn');
   const container=document.getElementById('ai-render-container');
-  const old=document.getElementById('ai-render-svg'); if(old)old.remove();
-  loading.style.display='flex'; loading.style.flexDirection='column'; loading.style.alignItems='center'; loading.style.justifyContent='center';
-  err.style.display='none'; btn.disabled=true; cap.textContent='Generating with AI…';
+  const oldSvg=document.getElementById('ai-render-svg'); if(oldSvg)oldSvg.remove();
+  loading.style.display='flex'; loading.style.flexDirection='column';
+  loading.style.alignItems='center'; loading.style.justifyContent='center';
+  err.style.display='none'; btn.disabled=true;
+  cap.textContent='Reading your plans and generating rendering…';
+
+  // Collect all uploaded plan images (already compressed base64 JPEGs)
+  const planPages=[];
+  for(const entry of files){
+    if(entry.status==='done' && entry.images && entry.images.length){
+      // Prefer pages that likely show elevations (later pages) or sample up to 4
+      for(const img of entry.images.slice(0,4)){
+        planPages.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:img}});
+        if(planPages.length>=4) break;
+      }
+    }
+    if(planPages.length>=4) break;
+  }
+
   const boro={1:'Manhattan',0.92:'Brooklyn',0.90:'Queens',0.86:'Bronx',0.84:'Staten Island'}[m.boro]||'Brooklyn';
-  const wt={new:'new ground-up',conversion:'adaptive reuse conversion of a',gut:'gut-renovated',partial:'partially renovated'}[m.worktype]||'';
-  const prompt='Describe in 2-3 sentences the architectural character of a '+wt+' '+m.floors+'-story, '+
-    (m.units||0)+'-unit multifamily residential building in '+boro+', NYC. GFA: '+Math.round(m.gfa||0).toLocaleString()+
-    ' SF. Include facade material, window pattern, and street presence. Be specific and visual.';
-  try{
-    // Route through the existing Netlify function proxy (has the API key server-side)
-    const resp=await fetch('/api/analyze',{method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({prompt,parts:[]})});
-    const data=await resp.json();
-    const desc=(data.text)||'';
-    loading.style.display='none';
-    container.appendChild(buildArchSVG(m));
-    cap.textContent=desc?desc.slice(0,200):('AI architectural visualization — '+m.floors+' floors, '+boro);
-  }catch(e){
-    loading.style.display='none'; err.style.display='block'; err.textContent='Could not generate: '+e.message;
+  const wt={new:'new ground-up',conversion:'adaptive reuse / conversion',gut:'gut renovation',partial:'partial renovation'}[m.worktype]||'construction';
+
+  let renderDesc='';
+  if(planPages.length>0){
+    // Send plan images to Claude — ask it to describe the building exterior based on elevations
+    const prompt='These are architectural plans for a '+m.floors+'-story, '+(m.units||0)+'-unit '+wt+' multifamily building in '+boro+', NYC ('+Math.round(m.gfa||0).toLocaleString()+' SF GFA). '+
+      'Look at the elevation drawings and describe the building exterior in detail: '+
+      'facade material (brick, glass, precast, metal panel, etc.), window size and pattern, '+
+      'cornice/parapet treatment, entrance, any setbacks or stepbacks, balconies if any, '+
+      'overall massing and architectural style. '+
+      'Be specific and visual — 3 to 4 sentences. Base your answer only on what you can see in these drawings.';
+    try{
+      const resp=await postProxy({parts:planPages,prompt});
+      if(resp.ok){ const d=await resp.json(); renderDesc=(d&&d.text)||''; }
+    }catch(e){ renderDesc=''; }
+  }
+
+  // Generate the SVG illustration — if we got a description from Claude, parse it for key features
+  // to make the SVG reflect the actual building
+  const features=parseRenderFeatures(renderDesc,m);
+  loading.style.display='none';
+  container.appendChild(buildArchSVG(m,features));
+
+  if(renderDesc){
+    cap.textContent=renderDesc.slice(0,260);
+  } else if(planPages.length===0){
+    cap.textContent='No plans uploaded — showing generic massing based on metrics. Upload plans for an elevation-based rendering.';
+  } else {
+    cap.textContent='AI architectural visualization — '+m.floors+' floors, '+boro;
   }
   btn.disabled=false;
 }
 
-function buildArchSVG(m){
+function parseRenderFeatures(desc,m){
+  // Extract visual cues from AI description to adjust the SVG
+  const d=desc.toLowerCase();
+  return {
+    hasBrick: d.includes('brick'),
+    hasGlass: d.includes('glass')||d.includes('curtain wall')||d.includes('glazing'),
+    hasMetal: d.includes('metal panel')||d.includes('corrugated')||d.includes('corten'),
+    hasPrecast: d.includes('precast')||d.includes('concrete'),
+    hasBalconies: d.includes('balcon'),
+    hasCornice: d.includes('cornice')||d.includes('parapet'),
+    hasSetback: d.includes('setback')||d.includes('stepback'),
+    isModern: d.includes('modern')||d.includes('contemporary')||d.includes('industrial'),
+    facadeColor: d.includes('red brick')||d.includes('red-brick')?'#8B4513':
+                 d.includes('buff')||d.includes('tan brick')?'#C4A265':
+                 d.includes('white')||d.includes('light brick')?'#D4C5A9':
+                 d.includes('dark brick')?'#5C3317':
+                 d.includes('gray')||d.includes('concrete')?'#6B7280':
+                 d.includes('black')||d.includes('dark metal')?'#1f2937':'#2d5580'
+  };
+}
+
+
+function buildArchSVG(m, features){
+  features=features||{};
   const floors=m.floors||4, units=m.units||10;
+  const facadeColor=features.facadeColor||'#2d5580';
+  const facadeDark=features.hasBrick?shadeColor(facadeColor,-20):'#1a2f4a';
+  const hasBalc=features.hasBalconies;
+  const isGlass=features.hasGlass;
+  const winColor=isGlass?'#a8d8f0':'#7bbfff';
+  const winLit=isGlass?'#cce8ff':'#cce8ff';
+
   const ns='http://www.w3.org/2000/svg';
   const svg=document.createElementNS(ns,'svg');
   svg.id='ai-render-svg';
   svg.setAttribute('viewBox','0 0 440 340');
   svg.style.cssText='width:100%;height:100%;position:absolute;top:0;left:0;';
   function el(tag,attrs,parent){ const e=document.createElementNS(ns,tag); Object.entries(attrs).forEach(([k,v])=>e.setAttribute(k,v)); if(parent)parent.appendChild(e); return e; }
+
   const defs=el('defs',{},svg);
+  // Sky
   const sky=el('linearGradient',{id:'rsky',x1:'0',y1:'0',x2:'0',y2:'1'},defs);
-  el('stop',{'offset':'0%','stop-color':'#08122a'},sky); el('stop',{'offset':'70%','stop-color':'#1a3060'},sky); el('stop',{'offset':'100%','stop-color':'#f2a90020'},sky);
+  el('stop',{'offset':'0%','stop-color':'#08122a'},sky);
+  el('stop',{'offset':'65%','stop-color':'#1a3060'},sky);
+  el('stop',{'offset':'100%','stop-color':'#f2a90025'},sky);
+  // Building gradient using actual facade color
   const bldG=el('linearGradient',{id:'rbld',x1:'0',y1:'0',x2:'1',y2:'0'},defs);
-  el('stop',{'offset':'0%','stop-color':'#1e3a5c'},bldG); el('stop',{'offset':'65%','stop-color':'#2d5580'},bldG); el('stop',{'offset':'100%','stop-color':'#1a2f4a'},bldG);
+  el('stop',{'offset':'0%','stop-color':facadeDark},bldG);
+  el('stop',{'offset':'60%','stop-color':facadeColor},bldG);
+  el('stop',{'offset':'100%','stop-color':facadeDark},bldG);
+
+  // Background
   el('rect',{x:0,y:0,width:440,height:340,fill:'url(#rsky)'},svg);
-  el('circle',{cx:380,cy:45,r:16,fill:'#f2a900',opacity:.55},svg);
-  [[40,28],[85,55],[130,18],[305,38],[355,22],[415,52]].forEach(([x,y])=>el('circle',{cx:x,cy:y,r:1.5,fill:'#fff',opacity:.65},svg));
-  [[28,200,55,140],[345,212,65,128],[385,222,50,118],[8,218,38,122]].forEach(([x,y,w,h])=>el('rect',{x,y,width:w,height:h,fill:'#0d1e33',opacity:.75},svg));
-  const bX=112,bW=216,flH=Math.min(32,Math.max(14,180/floors)),bH=floors*flH,bY=240-bH;
-  el('ellipse',{cx:bX+bW/2,cy:242,rx:bW*.55,ry:7,fill:'#000',opacity:.25},svg);
-  el('rect',{x:bX,y:bY,width:bW,height:bH,fill:'url(#rbld)'},svg);
-  el('polygon',{points:(bX+bW)+','+bY+' '+(bX+bW+16)+','+(bY+11)+' '+(bX+bW+16)+',242 '+(bX+bW)+',240,fill:#112440'},svg);
-  for(let f=1;f<floors;f++){ el('line',{x1:bX,y1:bY+f*flH,x2:bX+bW,y2:bY+f*flH,stroke:'#4a7090',strokeWidth:.7,opacity:.5},svg); }
-  const wCols=Math.min(8,Math.max(3,Math.round(bW/28))),wSp=bW/(wCols+1),wH=Math.min(flH*.55,15),wW=Math.min(wSp*.55,17);
-  for(let f=0;f<floors;f++) for(let w=0;w<wCols;w++){
-    const wg=el('linearGradient',{id:'rw'+f+'_'+w,x1:'0',y1:'0',x2:'0',y2:'1'},defs);
-    const lit=Math.random()>.35;
-    el('stop',{'offset':'0%','stop-color':lit?'#cce8ff':'#1a3550'},wg); el('stop',{'offset':'100%','stop-color':lit?'#7bbfff':'#0d2035'},wg);
-    el('rect',{x:bX+wSp*(w+1)-wW/2,y:bY+f*flH+flH*.22,width:wW,height:wH,fill:'url(#rw'+f+'_'+w+')',rx:1,opacity:.9},svg);
+  // Moon
+  el('circle',{cx:385,cy:48,r:16,fill:'#f2a900',opacity:.55},svg);
+  // Stars
+  [[42,28],[88,52],[132,18],[308,36],[358,22],[418,50]].forEach(([x,y])=>
+    el('circle',{cx:x,cy:y,r:1.5,fill:'#fff',opacity:.6},svg));
+
+  // Adjacent buildings
+  [[22,195,52,145],[350,205,62,135],[390,218,48,122],[5,215,36,125]].forEach(([x,y,w,h])=>
+    el('rect',{x,y,width:w,height:h,fill:'#0d1e33',opacity:.75},svg));
+
+  // Main building
+  const bX=108, bW=224;
+  const flH=Math.min(34,Math.max(15,185/floors));
+  const bH=floors*flH, bY=240-bH;
+  const hasSetback=features.hasSetback&&floors>4;
+  const setW=hasSetback?Math.round(bW*0.8):bW;
+  const setH=hasSetback?Math.round(bH*0.3):0;
+
+  // Shadow
+  el('ellipse',{cx:bX+bW/2,cy:243,rx:bW*.55,ry:7,fill:'#000',opacity:.25},svg);
+
+  // Setback upper portion if applicable
+  if(hasSetback){
+    el('rect',{x:bX+(bW-setW)/2,y:bY,width:setW,height:setH,fill:'url(#rbld)'},svg);
   }
-  el('rect',{x:bX-2,y:bY-9,width:bW+2,height:10,fill:'#3a6080'},svg);
-  el('rect',{x:bX+28,y:bY-20,width:38,height:12,fill:'#2a4a6a',rx:2},svg);
-  el('rect',{x:bX+140,y:bY-22,width:34,height:14,fill:'#2a4a6a',rx:2},svg);
-  el('rect',{x:bX+bW-48,y:bY-34,width:15,height:26,fill:'#5a3a1a',rx:2},svg);
-  el('ellipse',{cx:bX+bW-40,cy:bY-35,rx:11,ry:5,fill:'#7a5a2a'},svg);
+
+  // Main body
+  const mainTop=hasSetback?bY+setH:bY;
+  const mainH=hasSetback?bH-setH:bH;
+  el('rect',{x:bX,y:mainTop,width:bW,height:mainH,fill:'url(#rbld)'},svg);
+
+  // 3D side panel
+  el('polygon',{
+    points:(bX+bW)+','+mainTop+' '+(bX+bW+16)+','+(mainTop+12)+' '+(bX+bW+16)+',242 '+(bX+bW)+',240,',
+    fill:facadeDark,opacity:.8},svg);
+
+  // Brick texture lines (if brick facade)
+  if(features.hasBrick){
+    for(let r=0;r<Math.ceil(mainH/6);r++){
+      const ry=mainTop+r*6;
+      el('line',{x1:bX,y1:ry,x2:bX+bW,y2:ry,stroke:'rgba(0,0,0,.1)',strokeWidth:.5},svg);
+      // Stagger vertical joints
+      const offset=r%2===0?0:20;
+      for(let c=offset;c<bW;c+=40)
+        el('line',{x1:bX+c,y1:ry,x2:bX+c,y2:ry+6,stroke:'rgba(0,0,0,.1)',strokeWidth:.4},svg);
+    }
+  }
+
+  // Metal panel texture (horizontal panels)
+  if(features.hasMetal){
+    for(let r=0;r<Math.ceil(mainH/4);r++){
+      el('line',{x1:bX,y1:mainTop+r*4,x2:bX+bW,y2:mainTop+r*4,stroke:'rgba(255,255,255,.06)',strokeWidth:.6},svg);
+    }
+  }
+
+  // Floor lines
+  for(let f=1;f<floors;f++){
+    const fy=mainTop+f*flH;
+    el('line',{x1:bX,y1:fy,x2:bX+bW,y2:fy,stroke:'rgba(0,0,0,.25)',strokeWidth:.8},svg);
+  }
+
+  // Windows — glass curtain wall = large bands, brick = punched openings
+  const wCols=Math.min(isGlass?10:7, Math.max(3,Math.round(bW/28)));
+  const wSp=bW/(wCols+1);
+  const wH=isGlass?Math.min(flH*.8,26):Math.min(flH*.5,16);
+  const wW=isGlass?Math.min(wSp*.8,22):Math.min(wSp*.55,16);
+  for(let f=0;f<floors;f++){
+    const fy=mainTop+f*flH;
+    for(let w=0;w<wCols;w++){
+      const wx=bX+wSp*(w+1)-wW/2;
+      const wy=fy+flH*(isGlass?.1:.2);
+      const lit=Math.random()>.3;
+      const wg=el('linearGradient',{id:'rw'+f+'_'+w,x1:'0',y1:'0',x2:'0',y2:'1'},defs);
+      el('stop',{'offset':'0%','stop-color':lit?winLit:winColor},wg);
+      el('stop',{'offset':'100%','stop-color':lit?winColor:'#0d2035'},wg);
+      el('rect',{x:wx,y:wy,width:wW,height:wH,fill:'url(#rw'+f+'_'+w+')',rx:isGlass?0:1,opacity:.92},svg);
+      // Balconies
+      if(hasBalc&&f>0&&w%2===0){
+        el('rect',{x:wx-3,y:wy+wH,width:wW+6,height:4,fill:facadeDark,opacity:.6},svg);
+        el('line',{x1:wx-3,y1:wy+wH,x2:wx-3,y2:wy+wH+4,stroke:'rgba(255,255,255,.3)',strokeWidth:1},svg);
+        el('line',{x1:wx+wW+3,y1:wy+wH,x2:wx+wW+3,y2:wy+wH+4,stroke:'rgba(255,255,255,.3)',strokeWidth:1},svg);
+      }
+    }
+  }
+
+  // Parapet / cornice
+  const corH=features.hasCornice?12:6;
+  el('rect',{x:bX-2,y:bY-corH,width:bW+2,height:corH,fill:features.hasCornice?shadeColor(facadeColor,10):facadeDark},svg);
+  if(features.hasCornice){
+    el('rect',{x:bX-4,y:bY-corH-3,width:bW+6,height:4,fill:shadeColor(facadeColor,20)},svg);
+  }
+
+  // Rooftop
+  el('rect',{x:bX+25,y:bY-corH-18,width:38,height:14,fill:'#2a4a6a',rx:2},svg); // HVAC
+  el('rect',{x:bX+135,y:bY-corH-20,width:32,height:16,fill:'#2a4a6a',rx:2},svg); // HVAC 2
+  // Water tower (NYC)
+  el('rect',{x:bX+bW-50,y:bY-corH-33,width:15,height:26,fill:'#5a3a1a',rx:2},svg);
+  el('ellipse',{cx:bX+bW-42,cy:bY-corH-34,rx:11,ry:5,fill:'#7a5a2a'},svg);
+  // Bulkhead
+  el('rect',{x:bX+70,y:bY-corH-28,width:28,height:20,fill:facadeDark,rx:1},svg);
+
+  // Entrance
+  const entW=22, entH=Math.min(flH*.85,28);
+  const entX=bX+bW/2-entW/2;
+  el('rect',{x:entX,y:240-entH,width:entW,height:entH,fill:'#0d2035',rx:2},svg);
+  el('rect',{x:entX+4,y:240-entH+4,width:entW-8,height:entH-8,fill:'#1a4060',rx:1,opacity:.8},svg);
+  // Entrance canopy
+  el('rect',{x:entX-8,y:240-entH-3,width:entW+16,height:4,fill:shadeColor(facadeColor,15),rx:1},svg);
+
+  // Ground / sidewalk
   el('rect',{x:0,y:240,width:440,height:100,fill:'#0d1f2e'},svg);
-  el('rect',{x:0,y:240,width:440,height:7,fill:'#162535'},svg);
-  el('line',{x1:93,y1:240,x2:93,y2:192,stroke:'#2a4060',strokeWidth:2},svg);
-  el('circle',{cx:93,cy:190,r:4,fill:'#f2a900',opacity:.8},svg);
-  el('circle',{cx:93,cy:190,r:12,fill:'#f2a900',opacity:.07},svg);
-  const lbl=el('text',{x:220,y:330,fill:'#3a6080','text-anchor':'middle','font-size':10,'font-family':'IBM Plex Mono,monospace','letter-spacing':'.04em'},svg);
-  lbl.textContent=floors+'F · '+Math.round(m.gfa||0).toLocaleString()+' SF GFA · '+units+' units';
+  el('rect',{x:0,y:240,width:440,height:8,fill:'#162535'},svg);
+
+  // Street reflections
+  el('rect',{x:bX+10,y:248,width:bW-20,height:30,fill:'url(#rbld)',opacity:.08},svg);
+
+  // Lamppost
+  el('line',{x1:92,y1:240,x2:92,y2:194,stroke:'#2a4060',strokeWidth:2},svg);
+  el('circle',{cx:92,cy:192,r:5,fill:'#f2a900',opacity:.8},svg);
+  el('circle',{cx:92,cy:192,r:14,fill:'#f2a900',opacity:.07},svg);
+
+  // Label
+  const lbl=el('text',{x:220,y:330,fill:'#4a7090','text-anchor':'middle',
+    'font-size':10,'font-family':'IBM Plex Mono,monospace','letter-spacing':'.04em'},svg);
+  lbl.textContent=floors+'F \u00b7 '+Math.round(m.gfa||0).toLocaleString()+' SF GFA \u00b7 '+units+' units';
   return svg;
 }
+
+function shadeColor(hex,pct){
+  const num=parseInt(hex.replace('#',''),16);
+  const r=Math.min(255,Math.max(0,((num>>16)&255)+pct));
+  const g=Math.min(255,Math.max(0,((num>>8)&255)+pct));
+  const b=Math.min(255,Math.max(0,(num&255)+pct));
+  return '#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('');
+}
+
