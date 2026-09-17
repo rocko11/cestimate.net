@@ -1216,3 +1216,167 @@ function setSel(id,val){
 function setT(id,v){const e=document.getElementById(id); if(e)e.textContent=v;}
 function fmtM(n){return '$'+Math.round(n).toLocaleString();}
 function fmtN(n){return (Math.round(n*10)/10).toLocaleString();}
+
+
+/* ============ 3D RENDERING MODAL ============ */
+let _renderAnimId=null,_renderRenderer=null;
+
+function openRendering(){
+  if(!lastTotals||!lastTotals.m){ alert('Run the takeoff first.'); return; }
+  const m=lastTotals.m;
+  document.getElementById('rendering-modal').style.display='block';
+  document.body.style.overflow='hidden';
+  document.getElementById('render-title').textContent=(getV('m-name')||'Building')+' — 3D Rendering';
+  document.getElementById('render-metrics-badge').textContent=m.floors+'F · '+fmtN(m.gfa)+' SF';
+  buildSummaryPanel(m);
+  init3DScene(m);
+  generateAIImage();
+}
+
+function closeRendering(){
+  document.getElementById('rendering-modal').style.display='none';
+  document.body.style.overflow='';
+  if(_renderAnimId){ cancelAnimationFrame(_renderAnimId); _renderAnimId=null; }
+  if(_renderRenderer){ _renderRenderer.dispose(); _renderRenderer=null; }
+}
+
+function buildSummaryPanel(m){
+  const items=[['GFA',fmtN(m.gfa)+' SF'],['Net SF',fmtN(m.nsf)+' SF'],['Floors',m.floors+' stories'],['Units',m.units+' DU'],['Hard cost',fmtM(lastTotals.grand)]];
+  document.getElementById('render-summary').innerHTML=items.map(([k,v])=>
+    '<div style="text-align:center"><div style="color:#556;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">'+k+'</div><div style="color:#fff;font-size:15px;font-weight:600">'+v+'</div></div>'
+  ).join('');
+}
+
+function init3DScene(m){
+  if(typeof THREE==='undefined'){
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+    s.onload=function(){_build3D(m);};
+    document.head.appendChild(s);
+  } else { _build3D(m); }
+}
+
+function _build3D(m){
+  if(_renderAnimId){ cancelAnimationFrame(_renderAnimId); _renderAnimId=null; }
+  if(_renderRenderer){ _renderRenderer.dispose(); _renderRenderer=null; }
+  const canvas=document.getElementById('render-canvas-3d');
+  const W=Math.floor(canvas.getBoundingClientRect().width)||440;
+  const H=340;
+  const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+  renderer.setSize(W,H); renderer.setClearColor(0x0a1520,1);
+  renderer.shadowMap.enabled=true; _renderRenderer=renderer;
+  const scene=new THREE.Scene();
+  const camera=new THREE.PerspectiveCamera(45,W/H,.1,1000);
+  camera.position.set(18,12,22); camera.lookAt(0,0,0);
+  scene.add(new THREE.AmbientLight(0x223355,1.2));
+  const sun=new THREE.DirectionalLight(0xffeebb,2.5); sun.position.set(20,30,15); sun.castShadow=true; scene.add(sun);
+  scene.add(new THREE.GridHelper(60,30,0x1a3050,0x1a3050));
+  const gnd=new THREE.Mesh(new THREE.PlaneGeometry(80,80),new THREE.MeshLambertMaterial({color:0x0f2030}));
+  gnd.rotation.x=-Math.PI/2; gnd.position.y=-.05; scene.add(gnd);
+  const fp=m.footprint||4000, side=Math.sqrt(fp);
+  const perim=m.perim||side*4, floors=m.floors||4, f2f=m.f2f||11;
+  const aspect=Math.max(.5,Math.min(2,perim/(4*side)));
+  const bW=side*aspect*.055, bD=side/aspect*.055, bH=floors*f2f*.028;
+  const body=new THREE.Mesh(new THREE.BoxGeometry(bW,bH,bD),new THREE.MeshLambertMaterial({color:0x1a3a5c}));
+  body.position.y=bH/2; body.castShadow=true; scene.add(body);
+  for(let i=1;i<floors;i++){
+    const lm=new THREE.Mesh(new THREE.BoxGeometry(bW+.05,.08,bD+.05),new THREE.MeshLambertMaterial({color:0x2d5f8a}));
+    lm.position.y=i*(bH/floors); scene.add(lm);
+  }
+  const wMat=new THREE.MeshLambertMaterial({color:0x7bbfff,emissive:0x224466,emissiveIntensity:.5});
+  const wPF=Math.max(2,Math.round((m.windows||20)/floors)), wSp=bW/(wPF+1);
+  for(let f=0;f<floors;f++) for(let w=0;w<wPF;w++){
+    const wn=new THREE.Mesh(new THREE.BoxGeometry(.18,.28,.05),wMat);
+    wn.position.set(-bW/2+wSp*(w+1),f*(bH/floors)+(bH/floors*.6),bD/2+.01); scene.add(wn);
+    const wb=wn.clone(); wb.position.z=-bD/2-.01; scene.add(wb);
+  }
+  const par=new THREE.Mesh(new THREE.BoxGeometry(bW+.2,.3,bD+.2),new THREE.MeshLambertMaterial({color:0x2a4a6a}));
+  par.position.y=bH+.15; scene.add(par);
+  const sw=new THREE.Mesh(new THREE.BoxGeometry(bW+8,.05,4),new THREE.MeshLambertMaterial({color:0x162535}));
+  sw.position.set(0,0,bD/2+2); scene.add(sw);
+  let isDrag=false,px=0,py=0,rotX=.3,rotY=.5,dist=28;
+  canvas.onmousedown=e=>{isDrag=true;px=e.clientX;py=e.clientY;};
+  window.onmouseup=()=>{isDrag=false;};
+  window.onmousemove=e=>{if(!isDrag)return;rotY+=(e.clientX-px)*.008;rotX+=(e.clientY-py)*.006;rotX=Math.max(-.1,Math.min(1.1,rotX));px=e.clientX;py=e.clientY;};
+  canvas.onwheel=e=>{dist=Math.max(8,Math.min(60,dist+e.deltaY*.05));};
+  function animate(){ _renderAnimId=requestAnimationFrame(animate);
+    camera.position.x=dist*Math.sin(rotY)*Math.cos(rotX);
+    camera.position.y=dist*Math.sin(rotX)+3;
+    camera.position.z=dist*Math.cos(rotY)*Math.cos(rotX);
+    camera.lookAt(0,bH/2,0); renderer.render(scene,camera); }
+  animate();
+}
+
+async function generateAIImage(){
+  const m=lastTotals&&lastTotals.m; if(!m)return;
+  const loading=document.getElementById('ai-render-loading');
+  const err=document.getElementById('ai-render-error');
+  const cap=document.getElementById('ai-render-caption');
+  const btn=document.getElementById('regen-btn');
+  const container=document.getElementById('ai-render-container');
+  const old=document.getElementById('ai-render-svg'); if(old)old.remove();
+  loading.style.display='flex'; loading.style.flexDirection='column'; loading.style.alignItems='center'; loading.style.justifyContent='center';
+  err.style.display='none'; btn.disabled=true; cap.textContent='Generating with AI…';
+  const boro={1:'Manhattan',0.92:'Brooklyn',0.90:'Queens',0.86:'Bronx',0.84:'Staten Island'}[m.boro]||'Brooklyn';
+  const wt={new:'new ground-up',conversion:'adaptive reuse conversion of a',gut:'gut-renovated',partial:'partially renovated'}[m.worktype]||'';
+  const prompt='Describe in 2-3 sentences the architectural character of a '+wt+' '+m.floors+'-story, '+
+    (m.units||0)+'-unit multifamily residential building in '+boro+', NYC. GFA: '+Math.round(m.gfa||0).toLocaleString()+
+    ' SF. Include facade material, window pattern, and street presence. Be specific and visual.';
+  try{
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:300,messages:[{role:'user',content:prompt}]})});
+    const data=await resp.json();
+    const desc=(data.content&&data.content[0]&&data.content[0].text)||'';
+    loading.style.display='none';
+    container.appendChild(buildArchSVG(m));
+    cap.textContent=desc?desc.slice(0,200):('AI architectural visualization — '+m.floors+' floors, '+boro);
+  }catch(e){
+    loading.style.display='none'; err.style.display='block'; err.textContent='Could not generate: '+e.message;
+  }
+  btn.disabled=false;
+}
+
+function buildArchSVG(m){
+  const floors=m.floors||4, units=m.units||10;
+  const ns='http://www.w3.org/2000/svg';
+  const svg=document.createElementNS(ns,'svg');
+  svg.id='ai-render-svg';
+  svg.setAttribute('viewBox','0 0 440 340');
+  svg.style.cssText='width:100%;height:100%;position:absolute;top:0;left:0;';
+  function el(tag,attrs,parent){ const e=document.createElementNS(ns,tag); Object.entries(attrs).forEach(([k,v])=>e.setAttribute(k,v)); if(parent)parent.appendChild(e); return e; }
+  const defs=el('defs',{},svg);
+  const sky=el('linearGradient',{id:'rsky',x1:'0',y1:'0',x2:'0',y2:'1'},defs);
+  el('stop',{'offset':'0%','stop-color':'#08122a'},sky); el('stop',{'offset':'70%','stop-color':'#1a3060'},sky); el('stop',{'offset':'100%','stop-color':'#f2a90020'},sky);
+  const bldG=el('linearGradient',{id:'rbld',x1:'0',y1:'0',x2:'1',y2:'0'},defs);
+  el('stop',{'offset':'0%','stop-color':'#1e3a5c'},bldG); el('stop',{'offset':'65%','stop-color':'#2d5580'},bldG); el('stop',{'offset':'100%','stop-color':'#1a2f4a'},bldG);
+  el('rect',{x:0,y:0,width:440,height:340,fill:'url(#rsky)'},svg);
+  el('circle',{cx:380,cy:45,r:16,fill:'#f2a900',opacity:.55},svg);
+  [[40,28],[85,55],[130,18],[305,38],[355,22],[415,52]].forEach(([x,y])=>el('circle',{cx:x,cy:y,r:1.5,fill:'#fff',opacity:.65},svg));
+  [[28,200,55,140],[345,212,65,128],[385,222,50,118],[8,218,38,122]].forEach(([x,y,w,h])=>el('rect',{x,y,width:w,height:h,fill:'#0d1e33',opacity:.75},svg));
+  const bX=112,bW=216,flH=Math.min(32,Math.max(14,180/floors)),bH=floors*flH,bY=240-bH;
+  el('ellipse',{cx:bX+bW/2,cy:242,rx:bW*.55,ry:7,fill:'#000',opacity:.25},svg);
+  el('rect',{x:bX,y:bY,width:bW,height:bH,fill:'url(#rbld)'},svg);
+  el('polygon',{points:(bX+bW)+','+bY+' '+(bX+bW+16)+','+(bY+11)+' '+(bX+bW+16)+',242 '+(bX+bW)+',240,fill:#112440'},svg);
+  for(let f=1;f<floors;f++){ el('line',{x1:bX,y1:bY+f*flH,x2:bX+bW,y2:bY+f*flH,stroke:'#4a7090',strokeWidth:.7,opacity:.5},svg); }
+  const wCols=Math.min(8,Math.max(3,Math.round(bW/28))),wSp=bW/(wCols+1),wH=Math.min(flH*.55,15),wW=Math.min(wSp*.55,17);
+  for(let f=0;f<floors;f++) for(let w=0;w<wCols;w++){
+    const wg=el('linearGradient',{id:'rw'+f+'_'+w,x1:'0',y1:'0',x2:'0',y2:'1'},defs);
+    const lit=Math.random()>.35;
+    el('stop',{'offset':'0%','stop-color':lit?'#cce8ff':'#1a3550'},wg); el('stop',{'offset':'100%','stop-color':lit?'#7bbfff':'#0d2035'},wg);
+    el('rect',{x:bX+wSp*(w+1)-wW/2,y:bY+f*flH+flH*.22,width:wW,height:wH,fill:'url(#rw'+f+'_'+w+')',rx:1,opacity:.9},svg);
+  }
+  el('rect',{x:bX-2,y:bY-9,width:bW+2,height:10,fill:'#3a6080'},svg);
+  el('rect',{x:bX+28,y:bY-20,width:38,height:12,fill:'#2a4a6a',rx:2},svg);
+  el('rect',{x:bX+140,y:bY-22,width:34,height:14,fill:'#2a4a6a',rx:2},svg);
+  el('rect',{x:bX+bW-48,y:bY-34,width:15,height:26,fill:'#5a3a1a',rx:2},svg);
+  el('ellipse',{cx:bX+bW-40,cy:bY-35,rx:11,ry:5,fill:'#7a5a2a'},svg);
+  el('rect',{x:0,y:240,width:440,height:100,fill:'#0d1f2e'},svg);
+  el('rect',{x:0,y:240,width:440,height:7,fill:'#162535'},svg);
+  el('line',{x1:93,y1:240,x2:93,y2:192,stroke:'#2a4060',strokeWidth:2},svg);
+  el('circle',{cx:93,cy:190,r:4,fill:'#f2a900',opacity:.8},svg);
+  el('circle',{cx:93,cy:190,r:12,fill:'#f2a900',opacity:.07},svg);
+  const lbl=el('text',{x:220,y:330,fill:'#3a6080','text-anchor':'middle','font-size':10,'font-family':'IBM Plex Mono,monospace','letter-spacing':'.04em'},svg);
+  lbl.textContent=floors+'F · '+Math.round(m.gfa||0).toLocaleString()+' SF GFA · '+units+' units';
+  return svg;
+}
