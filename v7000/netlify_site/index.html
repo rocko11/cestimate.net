@@ -217,6 +217,7 @@ Add Send to Deal Builder button next to Download Excel<meta name="viewport" cont
   <div class="actions" style="margin-top:0;margin-bottom:1rem">
     <button class="btn btn-green" onclick="exportExcel()">⬇ Download Excel takeoff</button>
     <button class="btn" onclick="sendToDealBuilder()" style="background:#1a7f5a;color:#fff;border-color:#1a7f5a;font-weight:600" title="Send all hard costs, unit counts &amp; building metrics to Deal Builder">🔗 Send to Deal Builder →</button>
+    <button class="btn" onclick="openRendering()" style="background:#1a3a6b;color:#fff;border-color:#1a3a6b;font-weight:600" title="Generate 3D rendering from building metrics">🏗 3D Rendering</button>
     <button class="btn" onclick="backToVerify()">← Adjust inputs</button>
     <button class="btn btn-primary" onclick="buildProposal()">📄 Client proposal</button>
     <button class="btn" onclick="saveTemplate()">💾 Save estimate</button>
@@ -361,5 +362,46 @@ window.addEventListener('error',function(e){
 });
 </script>
 <script src="app.js?v=20260903-0856"></script>
+
+<!-- 3D RENDERING MODAL -->
+<div id="rendering-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,20,38,.93);overflow:auto;">
+  <div style="max-width:920px;margin:28px auto;padding:0 16px 48px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+      <div>
+        <div style="color:#F2A900;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:3px">P National Group</div>
+        <h2 style="color:#fff;font-size:22px;font-weight:700;margin:0" id="render-title">Building Rendering</h2>
+      </div>
+      <button onclick="closeRendering()" style="background:none;border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:8px;padding:8px 18px;cursor:pointer;font-size:14px;font-family:inherit">✕ Close</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
+      <div style="background:#0d1f35;border-radius:12px;border:1px solid rgba(255,255,255,.08);overflow:hidden;">
+        <div style="padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between;">
+          <span style="color:#7a9ab8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">3D Block Model</span>
+          <span style="color:#3a5570;font-size:11px" id="render-metrics-badge">—</span>
+        </div>
+        <canvas id="render-canvas-3d" style="display:block;width:100%;height:340px;background:#0a1520;cursor:grab;"></canvas>
+        <div style="padding:7px 16px;font-size:11px;color:#3a5570;">Drag to rotate · Scroll to zoom</div>
+      </div>
+      <div style="background:#0d1f35;border-radius:12px;border:1px solid rgba(255,255,255,.08);overflow:hidden;">
+        <div style="padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between;">
+          <span style="color:#7a9ab8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">AI Exterior Rendering</span>
+          <button id="regen-btn" onclick="generateAIImage()" style="background:rgba(29,111,184,.2);border:1px solid rgba(29,111,184,.35);color:#5aadee;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:inherit">↺ Regenerate</button>
+        </div>
+        <div id="ai-render-container" style="height:340px;position:relative;background:#0a1520;display:flex;align-items:center;justify-content:center;">
+          <div id="ai-render-loading" style="text-align:center;color:#3a5570;">
+            <div style="font-size:32px;margin-bottom:8px">🏗</div>
+            <div style="font-size:13px">Generating rendering…</div>
+          </div>
+          <div id="ai-render-error" style="display:none;color:#e56;font-size:13px;padding:20px;text-align:center;"></div>
+        </div>
+        <div style="padding:8px 16px;font-size:11px;color:#3a5570;line-height:1.4;" id="ai-render-caption">AI-generated architectural exterior</div>
+      </div>
+    </div>
+    <div style="background:#0d1f35;border-radius:12px;border:1px solid rgba(255,255,255,.08);padding:14px 20px;">
+      <div style="color:#7a9ab8;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;margin-bottom:10px">Building Summary</div>
+      <div id="render-summary" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;"></div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
