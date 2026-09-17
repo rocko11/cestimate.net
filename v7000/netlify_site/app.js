@@ -1323,11 +1323,12 @@ async function generateAIImage(){
     (m.units||0)+'-unit multifamily residential building in '+boro+', NYC. GFA: '+Math.round(m.gfa||0).toLocaleString()+
     ' SF. Include facade material, window pattern, and street presence. Be specific and visual.';
   try{
-    const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
+    // Route through the existing Netlify function proxy (has the API key server-side)
+    const resp=await fetch('/api/analyze',{method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:300,messages:[{role:'user',content:prompt}]})});
+      body:JSON.stringify({prompt,parts:[]})});
     const data=await resp.json();
-    const desc=(data.content&&data.content[0]&&data.content[0].text)||'';
+    const desc=(data.text)||'';
     loading.style.display='none';
     container.appendChild(buildArchSVG(m));
     cap.textContent=desc?desc.slice(0,200):('AI architectural visualization — '+m.floors+' floors, '+boro);
