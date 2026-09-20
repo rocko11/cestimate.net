@@ -1369,14 +1369,40 @@ async function generateAIImage(){
     }catch(e){ renderDesc=''; }
   }
 
-  // Generate the SVG illustration — if we got a description from Claude, parse it for key features
-  // to make the SVG reflect the actual building
-  const features=parseRenderFeatures(renderDesc,m);
-  loading.style.display='none';
-  container.appendChild(buildArchSVG(m,features));
+  // Generate the real photorealistic rendering from the description Claude
+  // just wrote. Falls back to the old schematic SVG only if image generation
+  // is unavailable (e.g. OPENAI_API_KEY not deployed yet), so the panel never
+  // goes empty.
+  const oldPhoto=document.getElementById('ai-render-photo'); if(oldPhoto) oldPhoto.remove();
+  cap.textContent='Rendering photorealistic exterior…';
+  const facadePrompt = renderDesc
+    ? `Photorealistic architectural exterior rendering, eye-level street view, daytime, clear sky, NYC streetscape context with sidewalk and adjacent buildings. A ${m.floors}-story ${wt} building in ${boro}, New York City. ${renderDesc} Clean modern architectural visualization style, sharp detail, natural lighting, no people, no text or watermarks.`
+    : `Photorealistic architectural exterior rendering, eye-level street view, daytime, clear sky. A ${m.floors}-story ${wt} building in ${boro}, New York City, approximately ${m.units||0} units, ${Math.round(m.gfa||0).toLocaleString()} SF gross floor area. NYC streetscape context with sidewalk, street trees, and adjacent buildings. Clean modern architectural visualization style, sharp detail, natural lighting, no people, no text or watermarks.`;
 
-  if(renderDesc){
-    cap.textContent=renderDesc.slice(0,260);
+  let photoOk=false;
+  try{
+    const r=await fetch('/.netlify/functions/render-facade',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:facadePrompt})});
+    const d=await r.json().catch(()=>({}));
+    if(r.ok && d && d.image){
+      const img=document.createElement('img');
+      img.id='ai-render-photo';
+      img.src='data:image/png;base64,'+d.image;
+      img.style.cssText='width:100%;height:100%;object-fit:cover;display:block;';
+      loading.style.display='none';
+      container.appendChild(img);
+      photoOk=true;
+    }
+  }catch(e){ /* fall through to SVG fallback below */ }
+
+  if(!photoOk){
+    loading.style.display='none';
+    container.appendChild(buildArchSVG(m,parseRenderFeatures(renderDesc,m)));
+  }
+
+  if(photoOk){
+    cap.textContent=renderDesc?renderDesc.slice(0,260):('AI-generated exterior — '+m.floors+' floors, '+boro);
+  } else if(renderDesc){
+    cap.textContent=renderDesc.slice(0,260)+' (schematic view — photorealistic rendering unavailable)';
   } else if(planPages.length===0){
     cap.textContent='No plans uploaded — showing generic massing based on metrics. Upload plans for an elevation-based rendering.';
   } else {
