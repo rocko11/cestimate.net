@@ -281,12 +281,28 @@ async function analyzePlans(){
    usually appears once), identifiers take the first non-empty, flags OR together.
    Anything still null after merging is reported to the user as "not found". */
 function mergeExtractions(list){
-  const numMax=['gfa','nsf','footprint','floors','units','perimeter','windows',
-    'doorsEntry','doorsStair','doorsInterior','hvacCondensers','hvacIndoor','exhaustFans','elevators'];
+  // Values that should come from ONE authoritative source (the cover/zoning
+  // sheet) — take the first real value found, in page order, instead of the
+  // max across batches. Max was the bug: a later batch scanning unrelated
+  // floor-plan pages could guess a bigger (wrong) number — e.g. miscounting
+  // apartment doors as "units" — and that wrong-but-bigger number would win
+  // over the correct cover-sheet total.
+  const singleFirst=['gfa','nsf','footprint','floors','units','perimeter'];
+  // Schedule quantities can legitimately be split across sheets/batches, so
+  // these still take the max (each batch's own sum should already be complete
+  // for what it saw; max tolerates partial visibility better than averaging).
+  const scheduleMax=['windows','doorsEntry','doorsStair','doorsInterior',
+    'hvacCondensers','hvacIndoor','exhaustFans','elevators'];
   const firstStr=['projectName','dobJob','borough','worktype','constructionType','occupancy'];
   const flags=['cellar','court'];
   const m={};
-  numMax.forEach(k=>{ let v=null; list.forEach(o=>{ const x=o&&o[k];
+  singleFirst.forEach(k=>{ let v=null; list.forEach(o=>{ const x=o&&o[k];
+    if(typeof x==='number'&&!Number.isNaN(x)){
+      if(x===-1){ if(v==null) v=-1; }
+      else if(v==null||v===-1) v=x; // first real value wins — don't let a later, possibly-wrong batch override it
+    }
+  }); m[k]=v; });
+  scheduleMax.forEach(k=>{ let v=null; list.forEach(o=>{ const x=o&&o[k];
     if(typeof x==='number'&&!Number.isNaN(x)){
       if(x===-1){ if(v==null) v=-1; }
       else v=(v==null||v===-1)?x:Math.max(v,x);
@@ -328,6 +344,8 @@ UNIT COUNT — HIGHEST PRIORITY:
 - Find any table with unit types (Studio/1BR/2BR/3BR/Apt/Unit/DU), read QTY/COUNT columns.
 - Check Zoning Analysis Table for total DU, check title block and general notes.
 - Sum all types: "2BR:20 + 1BR:34 + 3BR:11" → units=65. Never return null if any count found.
+- NYC filed plans often state a total like "TOTAL SEVENTY FIVE (75) CLASS \"A\" DWELLING UNITS" — the number is spelled out with the numeral in parentheses; use the numeral. If per-floor lines each state their own count (e.g. "9TH FLOOR: TEN (10) DWELLING UNITS"), sum them as a cross-check but report the explicit total when both are present.
+- Do NOT infer units by counting doors, rooms, or symbols on an individual floor-plan drawing — that consistently overcounts and should never be used as the source for this field.
 
 SCHEDULES: read every row, no skipping. Windows: sum QTY all rows. Doors: 3 separate counts (entry/stair/interior). HVAC: CU outdoor + AH indoor separate. Unreadable table → -1. Not present → null.
 
