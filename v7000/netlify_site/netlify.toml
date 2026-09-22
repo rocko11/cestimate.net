@@ -12,6 +12,11 @@
 [functions.analyze]
   timeout = 26
 
+# Image generation (gpt-image-1) can also take well over Netlify's 10s default —
+# same reasoning as analyze above.
+[functions.render-facade]
+  timeout = 26
+
 # Stable alias so the front-end always has a working path to the function.
 [[redirects]]
   from = "/api/analyze"
