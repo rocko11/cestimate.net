@@ -1338,50 +1338,65 @@ async function generateAIImage(){
   err.style.display='none'; btn.disabled=true;
   cap.textContent='Reading your plans and generating rendering…';
 
-  // Collect all uploaded plan images (already compressed base64 JPEGs)
-  const planPages=[];
+  // Sample pages spread across the WHOLE set, not just the first few — on a
+  // real DOB filing the elevation sheets are usually well past the floor
+  // plans (e.g. an A-3xx series partway through a 48-sheet set), so only
+  // looking at the first 4 pages reliably misses them.
+  const allImgs=[];
   for(const entry of files){
     if(entry.status==='done' && entry.images && entry.images.length){
-      // Prefer pages that likely show elevations (later pages) or sample up to 4
-      for(const img of entry.images.slice(0,4)){
-        planPages.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:img}});
-        if(planPages.length>=4) break;
-      }
+      entry.images.forEach(img=>allImgs.push(img));
     }
-    if(planPages.length>=4) break;
   }
+  const SAMPLE_N=10;
+  let sampled=allImgs;
+  if(allImgs.length>SAMPLE_N){
+    sampled=[];
+    for(let i=0;i<SAMPLE_N;i++) sampled.push(allImgs[Math.round(i*(allImgs.length-1)/(SAMPLE_N-1))]);
+  }
+  const planPages=sampled.map(img=>({type:'image',source:{type:'base64',media_type:'image/jpeg',data:img}}));
 
   const boro={1:'Manhattan',0.92:'Brooklyn',0.90:'Queens',0.86:'Bronx',0.84:'Staten Island'}[m.boro]||'Brooklyn';
   const wt={new:'new ground-up',conversion:'adaptive reuse / conversion',gut:'gut renovation',partial:'partial renovation'}[m.worktype]||'construction';
 
-  let renderDesc='';
+  let renderDesc=''; let elevationImg=null;
   if(planPages.length>0){
-    // Send plan images to Claude — ask it to describe the building exterior based on elevations
-    const prompt='These are architectural plans for a '+m.floors+'-story, '+(m.units||0)+'-unit '+wt+' multifamily building in '+boro+', NYC ('+Math.round(m.gfa||0).toLocaleString()+' SF GFA). '+
-      'Look at the elevation drawings and describe the building exterior in detail: '+
-      'facade material (brick, glass, precast, metal panel, etc.), window size and pattern, '+
-      'cornice/parapet treatment, entrance, any setbacks or stepbacks, balconies if any, '+
-      'overall massing and architectural style. '+
-      'Be specific and visual — 3 to 4 sentences. Base your answer only on what you can see in these drawings.';
+    // Ask Claude to both FIND the actual elevation sheet among the sampled
+    // pages (by 1-based position) and describe it — so we can use that exact
+    // page as a real image reference for generation, not just a text summary.
+    const prompt='These are '+planPages.length+' sample pages (numbered 1 to '+planPages.length+' in the order given) from architectural plans for a '+m.floors+'-story, '+(m.units||0)+'-unit '+wt+' multifamily building in '+boro+', NYC ('+Math.round(m.gfa||0).toLocaleString()+' SF GFA). '+
+      'Find the page that shows an exterior building ELEVATION — a front/street-facing view of the full facade (not a floor plan, not a section, not a site plan), usually labeled "ELEVATION". '+
+      'Respond with ONLY compact JSON, no markdown: {"elevationPageNumber": <1-based number of that page, or null if none of these sampled pages show one>, "description": "3-4 sentences describing the facade exactly as drawn — material, window size/pattern, cornice/parapet, entrance, whether balconies are shown and where, setbacks. Base this only on what is visible, and explicitly say \'no balconies shown\' if none appear."}';
     try{
       const resp=await postProxy({parts:planPages,prompt});
-      if(resp.ok){ const d=await resp.json(); renderDesc=(d&&d.text)||''; }
-    }catch(e){ renderDesc=''; }
+      if(resp.ok){
+        const d=await resp.json();
+        const raw=((d&&d.text)||'').replace(/```json|```/g,'').trim();
+        const parsed=JSON.parse(raw);
+        renderDesc=parsed.description||'';
+        if(parsed.elevationPageNumber && sampled[parsed.elevationPageNumber-1]){
+          elevationImg=sampled[parsed.elevationPageNumber-1];
+        }
+      }
+    }catch(e){ /* fall back to text-only, no reference image */ }
   }
 
-  // Generate the real photorealistic rendering from the description Claude
-  // just wrote. Falls back to the old schematic SVG only if image generation
-  // is unavailable (e.g. OPENAI_API_KEY not deployed yet), so the panel never
-  // goes empty.
+  // Generate the real photorealistic rendering. If we identified the actual
+  // elevation sheet above, pass it as a reference image so generation copies
+  // the real facade (window pattern, balconies, massing) instead of
+  // inventing a generic building from text alone. Falls back to the old
+  // schematic SVG only if image generation is unavailable entirely.
   const oldPhoto=document.getElementById('ai-render-photo'); if(oldPhoto) oldPhoto.remove();
   cap.textContent='Rendering photorealistic exterior…';
   const facadePrompt = renderDesc
-    ? `Photorealistic architectural exterior rendering, eye-level street view, daytime, clear sky, NYC streetscape context with sidewalk and adjacent buildings. A ${m.floors}-story ${wt} building in ${boro}, New York City. ${renderDesc} Clean modern architectural visualization style, sharp detail, natural lighting, no people, no text or watermarks.`
+    ? (elevationImg
+        ? `Using the attached architectural elevation drawing as the exact reference for massing, floor count, window pattern, and balconies, produce a photorealistic exterior rendering of the actual building it depicts — not a redesign or a different building. A ${m.floors}-story ${wt} building in ${boro}, New York City, approximately ${m.units||0} units. ${renderDesc} Render exactly what is shown in the elevation, including any balconies exactly where they appear, set in a real NYC streetscape with sidewalk and adjacent buildings, daytime, clear sky, sharp photorealistic detail, no people, no text or watermarks.`
+        : `Photorealistic architectural exterior rendering, eye-level street view, daytime, clear sky, NYC streetscape context with sidewalk and adjacent buildings. A ${m.floors}-story ${wt} building in ${boro}, New York City. ${renderDesc} Clean modern architectural visualization style, sharp detail, natural lighting, no people, no text or watermarks.`)
     : `Photorealistic architectural exterior rendering, eye-level street view, daytime, clear sky. A ${m.floors}-story ${wt} building in ${boro}, New York City, approximately ${m.units||0} units, ${Math.round(m.gfa||0).toLocaleString()} SF gross floor area. NYC streetscape context with sidewalk, street trees, and adjacent buildings. Clean modern architectural visualization style, sharp detail, natural lighting, no people, no text or watermarks.`;
 
   let photoOk=false;
   try{
-    const r=await fetch('/.netlify/functions/render-facade',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:facadePrompt})});
+    const r=await fetch('/.netlify/functions/render-facade',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:facadePrompt, referenceImage: elevationImg?('data:image/jpeg;base64,'+elevationImg):null})});
     const d=await r.json().catch(()=>({}));
     if(r.ok && d && d.image){
       const img=document.createElement('img');
@@ -1400,7 +1415,7 @@ async function generateAIImage(){
   }
 
   if(photoOk){
-    cap.textContent=renderDesc?renderDesc.slice(0,260):('AI-generated exterior — '+m.floors+' floors, '+boro);
+    cap.textContent=(elevationImg?'Rendered from the actual elevation sheet. ':'')+(renderDesc?renderDesc.slice(0,220):('AI-generated exterior — '+m.floors+' floors, '+boro));
   } else if(renderDesc){
     cap.textContent=renderDesc.slice(0,260)+' (schematic view — photorealistic rendering unavailable)';
   } else if(planPages.length===0){
