@@ -31,8 +31,8 @@ exports.handler = async (event) => {
     ? 'https://api.openai.com/v1/images/edits'
     : 'https://api.openai.com/v1/images/generations';
   const payload = hasReference
-    ? { model: 'gpt-image-1', prompt: prompt.slice(0, 4000), images: [{ image_url: referenceImage }], size: '1536x1024', quality: 'high', n: 1 }
-    : { model: 'gpt-image-1', prompt: prompt.slice(0, 4000), size: '1536x1024', quality: 'high', n: 1 };
+    ? { model: 'gpt-image-1', prompt: prompt.slice(0, 4000), images: [{ image_url: referenceImage }], size: '1536x1024', quality: 'medium', n: 1 }
+    : { model: 'gpt-image-1', prompt: prompt.slice(0, 4000), size: '1536x1024', quality: 'medium', n: 1 };
 
   try {
     const resp = await fetch(endpoint, {
