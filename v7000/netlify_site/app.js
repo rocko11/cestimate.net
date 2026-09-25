@@ -1,3 +1,6 @@
+/* ============ ANALYTICS ============ */
+function track(name,params){try{if(typeof gtag==='function')gtag('event',name,params||{});}catch(e){}}
+
 /* ============ STATE ============ */
 let files = [];  // entries: {file,name,size,images:[b64]|null,compBytes,status,msg}
 let lastRows = [], lastTotals = {};
@@ -241,6 +244,7 @@ async function extractFromImages(pages,onProg){
 
 
 async function analyzePlans(){
+  track('plans_uploaded',{file_count:files.length});
   show('analyzing'); hide('step-1');
   clearMetrics(); // never let a previous project's / example values carry into a new upload
   const msg=document.getElementById('analyze-msg');
@@ -268,8 +272,10 @@ async function analyzePlans(){
     const {merged,missing}=mergeExtractions(results);
     fillMetrics(merged);
     showExtractNote(results.length, files.length, missing);
+    track('analysis_success',{pages_read:results.length});
     hide('analyzing'); show('step-2'); setChip(2);
   }catch(err){
+    track('analysis_failed',{error:String(err&&err.message).slice(0,100)});
     hide('analyzing'); show('step-1');
     showBanner('Could not read the plans - ' + err.message);
     alert('Could not read the plans.\n\nReason: ' + err.message);
@@ -942,6 +948,7 @@ function ensureXLSX(){
   })();
 }
 async function exportExcel(){
+  track('excel_export');
   try{ await ensureXLSX(); }
   catch(e){ alert(e.message+'\n\nThe on-screen takeoff is unaffected — try the download again with an internet connection.'); return; }
   const {direct,gc,op,cont,grand,psf,gcPct,opPct,contPct,m}=lastTotals;
