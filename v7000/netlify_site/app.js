@@ -290,7 +290,11 @@ async function analyzePlans(){
     }
     // Anything the plans didn't give (net SF, perimeter, counts) gets an NYC
     // rule-of-thumb value so no line prices at $0 — flagged on the review screen.
-    const assumed=fillDescriptionDefaults(merged);
+    const keep=[];
+    if(planInfo.doors!=='none') keep.push('doorsEntry','doorsStair','doorsInterior');
+    if(planInfo.windows!=='none') keep.push('windows');
+    if(planInfo.ac!=='none') keep.push('hvacIndoor');
+    const assumed=fillDescriptionDefaults(merged,keep);
     const KEYLBL={nsf:'Net SF',perimeter:'Perimeter',f2f:'Floor-to-floor',windows:'Windows',doorsEntry:'Entry doors',
       doorsStair:'Stair/fire doors',doorsInterior:'Interior doors',hvacCondensers:'HVAC condensers',hvacIndoor:'HVAC indoor units',
       exhaustFans:'Exhaust fans',footprint:'Footprint/floor',floors:'# Floors',gfa:'Total GFA'};
@@ -334,8 +338,9 @@ function mergeExtractions(list){
       else if(v==null||v===-1) v=x; // first real value wins — don't let a later, possibly-wrong batch override it
     }
   }); m[k]=v; });
+  const zeroIsMissing=k=>k!=='elevators';   // "0 doors" on a sheet with no schedule = not found
   scheduleMax.forEach(k=>{ let v=null; list.forEach(o=>{ const x=o&&o[k];
-    if(typeof x==='number'&&!Number.isNaN(x)){
+    if(typeof x==='number'&&!Number.isNaN(x)&&!(x===0&&zeroIsMissing(k))){
       if(x===-1){ if(v==null) v=-1; }
       else v=(v==null||v===-1)?x:Math.max(v,x);
     }
@@ -1105,9 +1110,9 @@ async function estimateFromPrompt(){
 }
 // A written description has no drawings, so anything the AI left blank is
 // filled with standard NYC multifamily ratios. Returns the list of what was assumed.
-function fillDescriptionDefaults(p){
-  const a=[]; const ok=v=>typeof v==='number'&&v>0;
-  const set=(k,v,label)=>{ if(!ok(p[k])&&v>0){ p[k]=Math.round(v); a.push(label+' '+Math.round(v).toLocaleString()); } };
+function fillDescriptionDefaults(p,keep){
+  const a=[]; const ok=v=>typeof v==='number'&&v>0; keep=keep||[];
+  const set=(k,v,label)=>{ if(!keep.includes(k)&&!ok(p[k])&&v>0){ p[k]=Math.round(v); a.push(label+' '+Math.round(v).toLocaleString()); } };
   if(!ok(p.floors)) set('floors',ok(p.gfa)&&ok(p.footprint)?p.gfa/p.footprint:0,'floors');
   if(!ok(p.gfa)&&ok(p.footprint)&&ok(p.floors)) set('gfa',p.footprint*p.floors,'GFA (SF)');
   if(!ok(p.footprint)&&ok(p.gfa)&&ok(p.floors)) set('footprint',p.gfa/p.floors,'footprint (SF)');
