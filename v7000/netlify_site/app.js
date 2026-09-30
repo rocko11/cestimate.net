@@ -1077,19 +1077,44 @@ async function estimateFromPrompt(){
   try{
     const text=await callExtractorText(
       'A contractor describes a project below. Infer the building metrics and schedule counts as a NYC estimator would, '+
-      'using typical values where not stated (e.g. windows per unit, doors per unit, HVAC units per unit). Return null only if you cannot reasonably infer.\n\n'+
+      'using typical values where not stated (e.g. windows per unit, doors per unit, HVAC units per unit). Return null only if you cannot reasonably infer.\n'+
+      'IMPORTANT: there are no drawings or schedules here, so IGNORE every rule below that says to read counts only from a schedule — estimate windows, doors, HVAC units, exhaust fans, net SF and perimeter from typical NYC multifamily ratios.\n\n'+
       'PROJECT: '+desc+'\n\n'+EXTRACTION_PROMPT);
     const parsed=parseJSON(text);
     if(!parsed) throw new Error('could not parse');
+    const assumed=fillDescriptionDefaults(parsed);
     fillMetrics(parsed);
     const el=document.getElementById('extract-note');
-    if(el) el.innerHTML='<span class="ai-badge">From description</span> &nbsp;Values were inferred from your project description. <strong>Review every field</strong> — inferred numbers are assumptions, not measured takeoff. Edit anything, then run the takeoff.';
+    if(el) el.innerHTML='<span class="ai-badge">From description</span> &nbsp;Values were inferred from your project description. <strong>Review every field</strong> — inferred numbers are assumptions, not measured takeoff. Edit anything, then run the takeoff.'+
+      (assumed.length?'<br><br><strong>Filled with NYC rules of thumb</strong> (not stated in your description): '+assumed.join(' · ')+'.':'');
     hide('analyzing'); show('step-2'); setChip(2);
   }catch(e){
     hide('analyzing'); show('step-1');
     alert('Could not generate from the description ('+e.message+'). Enter the metrics manually instead.');
   }
 }
+// A written description has no drawings, so anything the AI left blank is
+// filled with standard NYC multifamily ratios. Returns the list of what was assumed.
+function fillDescriptionDefaults(p){
+  const a=[]; const ok=v=>typeof v==='number'&&v>0;
+  const set=(k,v,label)=>{ if(!ok(p[k])&&v>0){ p[k]=Math.round(v); a.push(label+' '+Math.round(v).toLocaleString()); } };
+  if(!ok(p.floors)) set('floors',ok(p.gfa)&&ok(p.footprint)?p.gfa/p.footprint:0,'floors');
+  if(!ok(p.gfa)&&ok(p.footprint)&&ok(p.floors)) set('gfa',p.footprint*p.floors,'GFA (SF)');
+  if(!ok(p.footprint)&&ok(p.gfa)&&ok(p.floors)) set('footprint',p.gfa/p.floors,'footprint (SF)');
+  const U=ok(p.units)?p.units:0, F=ok(p.floors)?p.floors:0;
+  set('nsf',ok(p.gfa)?p.gfa*0.80:0,'net SF (80% of GFA)');
+  set('perimeter',ok(p.footprint)?Math.sqrt(p.footprint)*4:0,'perimeter (LF)');
+  if(!ok(p.f2f)){ p.f2f=10.5; a.push("floor-to-floor 10.5'"); }
+  set('windows',U*5,'windows (5/unit)');
+  set('doorsEntry',U?U+2:0,'entry doors (1/unit + 2)');
+  set('doorsStair',F?F*2+(p.cellar===1?2:0):0,'stair doors (2/floor)');
+  set('doorsInterior',U*6,'interior doors (6/unit)');
+  set('hvacCondensers',U,'AC condensers (1/unit)');
+  set('hvacIndoor',U*2.5,'AC indoor units (2.5 rooms/unit)');
+  set('exhaustFans',U*2.5,'exhaust fans (2.5/unit)');
+  return a;
+}
+
 async function callExtractorText(prompt){
   // Text-only call through the Netlify function (which holds the API key).
   const r=await postProxy({parts:[],prompt});
