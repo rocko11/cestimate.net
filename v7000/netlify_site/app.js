@@ -288,8 +288,15 @@ async function analyzePlans(){
         }
       }catch(e){ console.warn('plan count failed',e); }
     }
+    // Anything the plans didn't give (net SF, perimeter, counts) gets an NYC
+    // rule-of-thumb value so no line prices at $0 — flagged on the review screen.
+    const assumed=fillDescriptionDefaults(merged);
+    const KEYLBL={nsf:'Net SF',perimeter:'Perimeter',f2f:'Floor-to-floor',windows:'Windows',doorsEntry:'Entry doors',
+      doorsStair:'Stair/fire doors',doorsInterior:'Interior doors',hvacCondensers:'HVAC condensers',hvacIndoor:'HVAC indoor units',
+      exhaustFans:'Exhaust fans',footprint:'Footprint/floor',floors:'# Floors',gfa:'Total GFA'};
+    Object.keys(KEYLBL).forEach(k=>{ if(typeof merged[k]==='number'&&merged[k]>0){ const i=missing.indexOf(KEYLBL[k]); if(i>=0) missing.splice(i,1); } });
     fillMetrics(merged);
-    showExtractNote(results.length, files.length, missing);
+    showExtractNote(results.length, files.length, missing, assumed);
     track('analysis_success',{pages_read:results.length});
     hide('analyzing'); show('step-2'); setChip(2);
   }catch(err){
@@ -346,7 +353,7 @@ function mergeExtractions(list){
   return {merged:m, missing};
 }
 
-function showExtractNote(ok,total,missing){
+function showExtractNote(ok,total,missing,assumed){
   const el=document.getElementById('extract-note');
   if(!el) return;
   let h=`<span class="ai-badge">AI-extracted</span> &nbsp;Read <strong>${ok} of ${total}</strong> file(s), scanning every page and schedule. Review the values and correct anything off — purple fields were auto-filled; all are editable.`;
@@ -363,6 +370,9 @@ function showExtractNote(ok,total,missing){
         if(planInfo.ac==='plans') b.push(x.acRooms+' AC');
         return `${esc2(x.sheet)}${x.mult>1?' (× '+x.mult+' floors)':''}: ${b.join(', ')}`; }).join(' · ')+
       `. Verify before bid.`;
+  }
+  if(assumed&&assumed.length){
+    h+=`<br><br><strong style="color:#b5340b">Not on the plans — filled with NYC rules of thumb, please check:</strong> ${assumed.map(esc2).join(' · ')}.`;
   }
   if(missing&&missing.length){
     h+=`<br><br><strong style="color:#b5340b">Not found on the sheets provided:</strong> ${missing.join(', ')}.<br>Enter these manually below, or go back and also upload the specific schedule sheet that lists them (e.g. window/door schedule, MEP equipment schedule).`;
