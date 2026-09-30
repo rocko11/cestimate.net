@@ -743,7 +743,7 @@ function buildTakeoff(m){
     {n:'Metal stud partition framing', basis:'Net area × 0.95 LF/SF', qty:m.nsf*PARTFACTOR, u:'LF', p:9.8, mh:0.075, trade:'drywall', src:'3-5/8" steel stud · mkt-adj −30%'},
     {n:'Gypsum board (5/8" Type X)', basis:'Partition LF × ht × 2 + ceilings', qty:(m.nsf*PARTFACTOR*wallht*2)+m.nsf, u:'SF', p:2.28, mh:0.016, trade:'drywall', src:'Both faces + ceiling · mkt-adj −30%'},
     {n:'Porcelain tile — bath & kitchen', basis:'Units × 120 SF', qty:m.units*120, u:'SF', p:19.6, mh:0.14, trade:'tile', src:'Bath/kitchen tile · mkt-adj −30%'},
-    {n:'Resilient flooring (LVT)', basis:'Net area − tile area', qty:Math.max(m.nsf-m.units*120,0), u:'SF', p:9.8, mh:0.025, trade:'flooring', src:'Living/bedroom · mkt-adj −30%'},
+    {n:'Engineered wood flooring', basis:'Net area − tile area', qty:Math.max(m.nsf-m.units*120,0), u:'SF', p:10.5, mh:0.03, trade:'flooring', src:'Living/bedroom · mkt-adj −30%'},
     {n:'Painting — walls & ceilings', basis:'GWB area', qty:(m.nsf*PARTFACTOR*wallht*2)+m.nsf, u:'SF', p:1.30, mh:0.011, trade:'painter', src:'2 coats · mkt-adj −30%'},
     {n:'Specialty ceilings / soffits', basis:'≈40 LF per unit', qty:m.units*40, u:'LF', p:129.5, mh:0.28, trade:'drywall', src:'HVAC soffits · mkt-adj −30%'},
   ]});
@@ -1799,17 +1799,17 @@ const SPEC_CATALOG={
   'Exterior wall insulation (int. face)':{mat:'Closed-cell spray foam or mineral wool at inside face of exterior walls',desc:'Insulating existing masonry walls from the inside.',kind:'work',photo:'closed cell spray foam insulation on the inside of an old brick wall between studs'},
   'Caulking & sealants':{mat:'Silicone and polyurethane sealants',desc:'Sealing joints at windows, doors and facade.',kind:'product',photo:'a caulk gun applying a bead of grey sealant around a window frame'},
   'Inner court / curtain wall system':{mat:'Aluminum curtain wall with insulated glass',desc:'Glazed walls enclosing the inner light court.',kind:'product',photo:'an aluminum curtain wall with large insulated glass panels facing an inner courtyard'},
-  'Windows (replacement)':{mat:'Aluminum or fiberglass double-hung/casement, insulated low-E glass',desc:'New energy-efficient windows in existing openings.',kind:'product',photo:'a black aluminum double-hung window with insulated low-e glass, isolated'},
+  'Windows (replacement)':{mat:'Aluminum windows, thermally broken, insulated low-E glass',desc:'New energy-efficient windows in the openings.',kind:'product',photo:'a black thermally broken aluminum window with insulated low-e glass, isolated'},
   'Apartment / entry doors (metal)':{mat:'Hollow metal door & frame, 3\'-0" × 7\'-0", 20-min rated, lever lockset, closer, peephole',desc:'Front door of each apartment, off the public corridor.',kind:'product',photo:'a painted dark grey hollow metal apartment entry door with lever handle and peephole'},
   'Stair / fire-rated doors (metal)':{mat:'Hollow metal door & frame, 1½-hr rated, closer, panic hardware, rated label',desc:'Self-closing fire doors into stairs and rated corridors.',kind:'product',photo:'a red painted hollow metal fire rated stair door with push bar and door closer'},
   'Interior doors (solid wood)':{mat:'Solid wood door, 8\'-0" high, with a horizontal design line (routed groove) across the door',desc:'Bedroom, bathroom and closet doors inside each unit.',kind:'product',photo:'a tall 8 foot solid wood interior door painted white with a single horizontal routed design line across it, modern lever handle'},
   'Metal stud partition framing':{mat:'Light-gauge galvanized steel studs & track, 3-5/8" typical',desc:'Framing for all new interior walls.',kind:'product',photo:'galvanized steel metal stud wall framing with top and bottom track'},
   'Gypsum board (5/8" Type X)':{mat:'5/8" Type X fire-rated gypsum board, taped & finished',desc:'Wall and ceiling board over framing, fire rated.',kind:'product',photo:'stacked 5/8 inch type X fire rated gypsum drywall boards'},
   'Porcelain tile — bath & kitchen':{mat:'Porcelain tile, 12×24 floor / 3×12 wall, on waterproofing',desc:'Tile floors and walls in bathrooms and kitchen backsplashes.',kind:'product',photo:'a modern bathroom with large format grey porcelain floor tile and white wall tile'},
-  'Resilient flooring (LVT)':{mat:'Luxury vinyl plank, 20-mil wear layer, oak look',desc:'Floor finish in living rooms, bedrooms and halls.',kind:'product',photo:'light oak look luxury vinyl plank flooring in an apartment living room'},
+  'Engineered wood flooring':{mat:'Engineered white oak plank, 5" wide, 3/4" thick, factory-finished matte',desc:'Wood floors in living rooms, bedrooms and halls.',kind:'product',photo:'wide white oak engineered wood plank flooring with a matte natural finish in a bright apartment living room'},
   'Painting — walls & ceilings':{mat:'Low-VOC latex, primer + 2 coats (eggshell walls, flat ceilings)',desc:'Paint on all new walls and ceilings.',kind:'work',photo:'freshly painted white apartment walls and ceiling with a paint roller'},
   'Specialty ceilings / soffits':{mat:'Gypsum board soffits and drop ceilings on metal framing',desc:'Dropped ceilings to hide ducts and pipes.',kind:'work',photo:'a gypsum board drop soffit in an apartment hallway hiding ductwork'},
-  'Kitchen casework & countertops':{mat:'Flat-panel cabinets with quartz countertop',desc:'Full kitchen cabinets and countertops per unit.',kind:'product',photo:'a compact modern apartment kitchen with flat panel cabinets and white quartz countertop'},
+  'Kitchen casework & countertops':{mat:'Flat-panel cabinets with Caesarstone quartz countertop',desc:'Full kitchen cabinets and countertops per unit.',kind:'product',photo:'a compact modern apartment kitchen with flat panel cabinets and a white Caesarstone quartz countertop'},
   'Bathroom vanities & accessories':{mat:'Wall-hung vanity, porcelain sink, mirror, towel bars, grab-bar blocking',desc:'Vanity and accessories in each bathroom.',kind:'product',photo:'a wall-hung bathroom vanity with integrated white sink and mirror'},
   'Appliance packages':{mat:'Stainless range, refrigerator, dishwasher, microwave/hood',desc:'Kitchen appliances for each unit.',kind:'product',photo:'a set of stainless steel kitchen appliances: range, refrigerator and dishwasher'},
   'Passenger elevator':{mat:'Machine-room-less traction elevator, stainless cab',desc:'Passenger elevator serving all floors.',kind:'product',photo:'a modern passenger elevator with brushed stainless steel doors in a lobby'},
@@ -1828,7 +1828,7 @@ function specFor(name){
   const k=Object.keys(SPEC_CATALOG).find(x=>x.split(' ')[0]===String(name).split(' ')[0]&&String(name).includes(x.split(' — ')[0]));
   return k?SPEC_CATALOG[k]:{mat:'—',desc:'Custom line item',kind:'product',photo:String(name)};
 }
-const PHOTO_KEY='cest-photo-v1:';
+const PHOTO_KEY='cest-photo-v2:';
 const photoMem={};
 function getPhoto(name){ if(photoMem[name]) return photoMem[name]; try{ const v=localStorage.getItem(PHOTO_KEY+name); if(v){ photoMem[name]=v; return v; } }catch(e){} return null; }
 function putPhoto(name,url){ photoMem[name]=url; try{ localStorage.setItem(PHOTO_KEY+name,url); }catch(e){} }
