@@ -1091,16 +1091,12 @@ async function estimateFromPrompt(){
   }
 }
 async function callExtractorText(prompt){
-  try{
-    const r=await fetch(PROXY_URL,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({parts:[{media_type:'image/png',data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='}],prompt,file:{kind:'image',media_type:'image/png',data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='}})});
-    if(r.ok){ const d=await r.json(); if(d&&typeof d.text==='string') return d.text; }
-  }catch(e){}
-  const r2=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,messages:[{role:'user',content:[{type:'text',text:prompt}]}]})});
-  if(!r2.ok) throw new Error('API '+r2.status);
-  const d2=await r2.json();
-  return (d2.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n');
+  // Text-only call through the Netlify function (which holds the API key).
+  const r=await postProxy({parts:[],prompt});
+  let d=null; try{ d=await r.json(); }catch(_){}
+  if(r.ok&&d&&typeof d.text==='string') return d.text;
+  const why=(d&&d.error)||('server error '+r.status);
+  throw new Error(r.status===504||r.status===502?'the AI took too long to answer — try a shorter description':why);
 }
 
 

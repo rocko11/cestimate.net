@@ -4,7 +4,7 @@
 // at a time plus the extraction prompt; this returns the model's text reply.
 //
 // Endpoint (after deploy):  /.netlify/functions/analyze
-const FN_VERSION = '2026-09-04a';
+const FN_VERSION = '2026-09-30a';
 exports.handler = async (event) => {
   // Health check: GET returns the deployed function version (proves what's live).
   if (event.httpMethod === 'GET') {
@@ -24,8 +24,8 @@ exports.handler = async (event) => {
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) }; }
 
   const { file, parts, prompt, pageText } = body;
-  if (!prompt || (!Array.isArray(parts) && !(file && file.data))) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Expected { parts:[{media_type,data}], prompt } or { file:{kind,media_type,data}, prompt }' }) };
+  if (!prompt) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'Missing prompt' }) };
   }
 
   let content;
@@ -36,7 +36,7 @@ exports.handler = async (event) => {
       ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: file.data } }
       : { type: 'image', source: { type: 'base64', media_type: file.media_type || 'image/png', data: file.data } } ];
   } else {
-    return { statusCode: 400, body: JSON.stringify({ error: 'No image parts or file provided.' }) };
+    content = [];   // text-only request (e.g. estimate from a written project description)
   }
 
   // Guard the upstream call with our own timeout so we return a clean JSON error
