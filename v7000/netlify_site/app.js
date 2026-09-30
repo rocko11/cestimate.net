@@ -319,6 +319,7 @@ function mergeExtractions(list){
     'hvacCondensers','hvacIndoor','exhaustFans','elevators'];
   const firstStr=['projectName','dobJob','borough','worktype','constructionType','occupancy'];
   const flags=['cellar','court'];
+  const fs={}; ['excavationDepth','soeLF','underpinningLF','pileCount'].forEach(k=>{ let v=null; list.forEach(o=>{ const x=o&&o[k]; if(typeof x==='number'&&x>0&&x<100000) v=(v==null)?x:Math.max(v,x); }); fs[k]=v; });
   const m={};
   singleFirst.forEach(k=>{ let v=null; list.forEach(o=>{ const x=o&&o[k];
     if(typeof x==='number'&&!Number.isNaN(x)){
@@ -341,6 +342,7 @@ function mergeExtractions(list){
     doorsEntry:'Entry doors',doorsStair:'Stair/fire doors',doorsInterior:'Interior doors',
     hvacCondensers:'HVAC condensers',hvacIndoor:'HVAC indoor units',exhaustFans:'Exhaust fans',elevators:'Elevators'};
   const missing=Object.keys(LBL).filter(k=>m[k]==null).map(k=>LBL[k]);
+  Object.assign(m,fs);
   return {merged:m, missing};
 }
 
@@ -388,8 +390,9 @@ UNIT COUNT — HIGHEST PRIORITY:
 SCHEDULES: read every row, no skipping. Windows: sum QTY all rows of a WINDOW SCHEDULE table only (never count window symbols on a plan; null if no window schedule). Doors: 3 separate counts (entry/stair/interior) — ONLY from a DOOR SCHEDULE table; never count door symbols on a plan for these fields (leave null if there is no door schedule). HVAC: CU outdoor + AH indoor separate, ONLY from an HVAC/mechanical equipment schedule (null if none). Unreadable table → -1. Not present → null.
 
 Return ONE JSON object, no markdown:
-{"projectName":string|null,"dobJob":string|null,"borough":"Manhattan"|"Brooklyn"|"Queens"|"Bronx"|"Staten Island"|null,"address":string|null,"gfa":number|null,"nsf":number|null,"footprint":number|null,"floors":number|null,"cellar":0|1|null,"units":number|null,"f2f":number|null,"perimeter":number|null,"worktype":"new"|"conversion"|"gut"|"partial"|null,"constructionType":"I-A"|"I-B"|"II-A"|"II-B"|"III-A"|"III-B"|"V"|null,"occupancy":"R-2"|"R-3"|"B"|"A"|"M"|"I"|null,"court":0|1|null,"windows":number|null,"doorsEntry":number|null,"doorsStair":number|null,"doorsInterior":number|null,"hvacCondensers":number|null,"hvacIndoor":number|null,"exhaustFans":number|null,"elevators":number|null,"floorAreas":[{"name":string,"gross":number|null,"net":number|null}]|null,"sheetNumber":string|null,"sheetKind":"floor_plan"|"other","floorLabel":string|null,"typicalFloors":number|null}
+{"projectName":string|null,"dobJob":string|null,"borough":"Manhattan"|"Brooklyn"|"Queens"|"Bronx"|"Staten Island"|null,"address":string|null,"gfa":number|null,"nsf":number|null,"footprint":number|null,"floors":number|null,"cellar":0|1|null,"units":number|null,"f2f":number|null,"perimeter":number|null,"worktype":"new"|"conversion"|"gut"|"partial"|null,"constructionType":"I-A"|"I-B"|"II-A"|"II-B"|"III-A"|"III-B"|"V"|null,"occupancy":"R-2"|"R-3"|"B"|"A"|"M"|"I"|null,"court":0|1|null,"windows":number|null,"doorsEntry":number|null,"doorsStair":number|null,"doorsInterior":number|null,"hvacCondensers":number|null,"hvacIndoor":number|null,"exhaustFans":number|null,"elevators":number|null,"floorAreas":[{"name":string,"gross":number|null,"net":number|null}]|null,"sheetNumber":string|null,"sheetKind":"floor_plan"|"other","floorLabel":string|null,"typicalFloors":number|null,"excavationDepth":number|null,"soeLF":number|null,"underpinningLF":number|null,"pileCount":number|null}
 SHEET: sheetNumber = drawing number in the title block (e.g. "A-101.00"). sheetKind="floor_plan" ONLY for a full architectural PROPOSED/NEW floor plan of one building level (cellar, 1st, 2nd, typical, penthouse). Everything else is "other": reflected ceiling plans, demolition/existing plans, enlarged or partial plans, roof/bulkhead plans, site/zoning, sections, elevations, details, schedules, structural and MEP sheets. floorLabel = the level shown (e.g. "1ST FLOOR"). typicalFloors = how many levels this one plan represents (e.g. "TYPICAL 2ND-4TH FLOOR PLAN" → 3; otherwise 1).
+FOUNDATION SUPPORT (structural FO-/S-/SOE- sheets, sections, foundation & pile plans, notes): excavationDepth = feet from grade to the bottom of excavation / cellar slab (e.g. cellar slab at -11'-6" → 11.5). soeLF = total length in LF of sheeting/shoring/soldier piles/SOE shown. underpinningLF = total LF of adjacent building walls to be underpinned. pileCount = number of piles on the pile/foundation plan (count every pile symbol or read the pile schedule). null if the sheet doesn't show it.
 JSON only. No extra text.`;
 
 /* ============ DOOR COUNT FROM FLOOR PLANS ============ */
@@ -504,6 +507,8 @@ function fillMetrics(p){
   setV('m-doors-stair',nb(p.doorsStair)); setV('m-doors-int',nb(p.doorsInterior));
   setV('m-hvac-cu',nb(p.hvacCondensers)); setV('m-hvac-ah',nb(p.hvacIndoor));
   setV('m-exhaust',nb(p.exhaustFans)); setV('m-elev',nb(p.elevators));
+  setV('m-exc-depth',nb(p.excavationDepth)); setV('m-soe-lf',nb(p.soeLF));
+  setV('m-underpin-lf',nb(p.underpinningLF)); setV('m-piles',nb(p.pileCount));
   // reflect cross-derived areas into blank fields so they're visible & editable
   const gv=id=>+getV(id)||0;
   if(gv('m-gfa')<=0 && gv('m-footprint')>0 && gv('m-floors')>0) setV('m-gfa',Math.round(gv('m-footprint')*gv('m-floors')));
@@ -530,7 +535,7 @@ function fillMetrics(p){
 function clearMetrics(){
   planInfo=null;
   ['m-name','m-job','m-gfa','m-nsf','m-footprint','m-floors','m-units','m-f2f','m-perim',
-   'm-windows','m-doors-entry','m-doors-stair','m-doors-int','m-hvac-cu','m-hvac-ah','m-exhaust','m-elev']
+   'm-windows','m-doors-entry','m-doors-stair','m-doors-int','m-hvac-cu','m-hvac-ah','m-exhaust','m-elev','m-exc-depth','m-soe-lf','m-underpin-lf','m-piles']
    .forEach(id=>setV(id,''));
 }
 
@@ -647,12 +652,32 @@ function metrics(){
     if(derived<=150000) g.gfa=derived;
   }
   if(g.footprint<=0 && g.gfa>0 && g.floors>0) g.footprint=Math.round(g.gfa/g.floors);
+  // Excavation & foundation support. Blank = auto default; an entered 0 means "none".
+  const raw=id=>{ const v=String(getV(id)==null?'':getV(id)).trim(); return v===''?null:Math.max(0,+v||0); };
+  const P=g.perim>0?g.perim:Math.round(Math.sqrt(Math.max(g.footprint,0))*4);
+  g.excDepthSet=raw('m-exc-depth')!==null; g.soeSet=raw('m-soe-lf')!==null; g.underpinSet=raw('m-underpin-lf')!==null;
+  g.excDepth=g.excDepthSet?raw('m-exc-depth'):(g.cellar?12:4);
+  g.soeLF=g.soeSet?raw('m-soe-lf'):(g.cellar?P:0);
+  g.underpinLF=g.underpinSet?raw('m-underpin-lf'):(g.cellar?Math.round(P*0.5):0);
+  g.piles=raw('m-piles')||0;
   // NSF is never assumed. If missing, net-based lines price at 0 and a warning shows.
   return g;
 }
 
 // PARTFACTOR (LF partition per SF floor) and wall height factor
 const PARTFACTOR=0.30, WALLHT_RATIO=0.83; // residential 0.30 LF partition/SF net; clear wall ht ≈ 0.83 × f2f
+
+/* Excavation, SOE, underpinning and piles. New construction always gets
+   excavation + auto-defaulted SOE/underpinning; existing buildings (cellar
+   lowering, additions) only get the lines the user or the plans set. */
+function excavationItems(m,explicitOnly){
+  const it=[]; const d=m.excDepth;
+  if(!explicitOnly||m.excDepthSet) if(d>0) it.push({n:'Excavation & soil export', basis:`Footprint × ${d} ft depth ÷ 27`, qty:m.footprint*d/27, u:'CY', p:55, mh:0.12, trade:'operator', src:'Dig, load & truck off-site'});
+  if(!explicitOnly||m.soeSet) if(m.soeLF>0&&d>0) it.push({n:'Support of excavation (SOE) — soldier piles & lagging', basis:`${Math.round(m.soeLF)} LF × ${d} ft deep`, qty:m.soeLF*d, u:'SF', p:95, mh:0.25, trade:'operator', src:'Sheeting & shoring, face SF'});
+  if(!explicitOnly||m.underpinSet) if(m.underpinLF>0) it.push({n:'Underpinning of adjacent buildings', basis:'LF of neighbor foundation walls', qty:m.underpinLF, u:'LF', p:1800, mh:10, trade:'concrete', src:'Hand-dug pits, sequenced'});
+  if(m.piles>0) it.push({n:'Piles (steel pipe / helical, installed)', basis:'Count from foundation plan', qty:m.piles, u:'EA', p:6500, mh:12, trade:'operator', src:'Incl. load test allowance'});
+  return it;
+}
 
 // Each item now carries: mh (man-hours per unit) and trade (for labor rate).
 function buildTakeoff(m){
@@ -662,7 +687,7 @@ function buildTakeoff(m){
 
   if(isNew){
     divs.push({div:'00 · Sitework, Excavation & Foundations', items:[
-      {n:'Excavation & earthwork', basis:'Footprint × ~8 ft depth ÷ 27', qty:m.footprint*8/27, u:'CY', p:55, mh:0.12, trade:'operator', src:'New foundation'},
+      ...excavationItems(m),
       {n:'Foundation (footings, mat, walls)', basis:'Footprint SF · mandatory $45/SF', qty:m.footprint, u:'SF', p:45, fixed:true, mh:0.30, trade:'concrete', src:'Mandatory $45/SF (fixed)'},
       {n:'Below-grade waterproofing', basis:'Footprint SF', qty:m.footprint, u:'SF', p:14, mh:0.05, trade:'laborer', src:'Foundation walls+slab'},
       {n:'Utility connections', basis:'Lump', qty:1, u:'LS', p:185000, mh:350, trade:'laborer', src:'ConEd/DEP taps'},
@@ -675,6 +700,8 @@ function buildTakeoff(m){
       {n:'Air/vapor barrier & insulation', basis:'Perim × ht × floors × 90%', qty:(m.perim>0?m.perim:Math.sqrt(m.footprint)*4)*m.f2f*m.floors*0.90, u:'SF', p:16, mh:0.05, trade:'insulation', src:'Continuous insulation'},
     ]});
   }else{
+    const exc=excavationItems(m,true);
+    if(exc.length) divs.push({div:'00 · Excavation & Foundation Support', items:exc});
     divs.push({div:'02 · Demolition', items:[
       {n:'Selective interior demolition', basis:'Net area × 40%', qty:m.nsf*0.40, u:'SF', p:9, mh:0.07, trade:'laborer', src:'Partial demo, factored'},
       {n:'Debris removal & disposal', basis:'1 CY / 35 SF demo', qty:(m.nsf*0.40)/35, u:'CY', p:95, mh:0.45, trade:'laborer', src:'NYC C&D disposal'},
@@ -960,7 +987,7 @@ function saveTemplate(){
     markups:{gc:getV('gc-pct'),op:getV('op-pct'),cont:getV('cont-pct'),margin:getV('margin-pct'),labor:getV('labor-mult')}};
   ['m-name','m-job','m-borough','m-gfa','m-nsf','m-footprint','m-floors','m-units','m-f2f','m-perim',
    'm-cellar','m-worktype','m-ctype','m-occ','m-court','m-windows','m-doors-entry','m-doors-stair',
-   'm-doors-int','m-hvac-cu','m-hvac-ah','m-exhaust','m-elev'].forEach(id=>data.metrics[id]=getV(id));
+   'm-doors-int','m-hvac-cu','m-hvac-ah','m-exhaust','m-elev','m-exc-depth','m-soe-lf','m-underpin-lf','m-piles'].forEach(id=>data.metrics[id]=getV(id));
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);

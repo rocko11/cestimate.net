@@ -133,6 +133,18 @@
   </div>
 
   <div class="section">
+    <div class="section-title">Excavation &amp; foundation support</div>
+    <div class="card">
+      <div class="grid4">
+        <div class="field ai"><label>Excavation depth (ft) <span class="hint">— blank = 12 w/ cellar, 4 without</span></label><input id="m-exc-depth" type="number" step="0.5" placeholder="auto" oninput="recalc()"></div>
+        <div class="field ai"><label>SOE / shoring length (LF) <span class="hint">— blank = full perimeter if cellar</span></label><input id="m-soe-lf" type="number" placeholder="auto" oninput="recalc()"></div>
+        <div class="field ai"><label>Underpinning (LF of neighbor walls) <span class="hint">— blank = ½ perimeter if cellar</span></label><input id="m-underpin-lf" type="number" placeholder="auto" oninput="recalc()"></div>
+        <div class="field ai"><label>Piles (count) <span class="hint">— from foundation/pile plan</span></label><input id="m-piles" type="number" placeholder="0" oninput="recalc()"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
     <div class="section-title">Net floor area by floor</div>
     <div class="card">
       <div style="overflow-x:auto">
@@ -369,7 +381,7 @@ window.addEventListener('error',function(e){
   if(el){ el.textContent='Script error: '+(e.message||'unknown')+'  — please report this.'; el.classList.remove('hidden'); }
 });
 </script>
-<script src="app.js?v=20260930-kitchen"></script>
+<script src="app.js?v=20260930-soe"></script>
 
 <!-- 3D RENDERING MODAL -->
 <div id="rendering-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,20,38,.93);overflow:auto;">
