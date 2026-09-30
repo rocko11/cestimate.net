@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<meta charset="UTF-8">
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-F0WZ7PX9YD"></script>
 <script>
@@ -14,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=20260903-0856">
+<link rel="stylesheet" href="styles.css?v=20260930-specs">
 </head>
 <body>
 <div class="app">
@@ -240,6 +241,7 @@
     <button class="btn" onclick="openRendering()" style="background:#1a3a6b;color:#fff;border-color:#1a3a6b;font-weight:600" title="Generate 3D rendering from building metrics">🏗 3D Rendering</button>
     <button class="btn" onclick="backToVerify()">← Adjust inputs</button>
     <button class="btn btn-primary" onclick="buildProposal()">📄 Client proposal</button>
+    <button class="btn" onclick="openSpecs()">📋 Materials &amp; specs</button>
     <button class="btn" onclick="saveTemplate()">💾 Save estimate</button>
     <button class="btn" onclick="resetEstimate()">↺ Reset edits</button>
     <button class="btn" onclick="window.print()">🖨 Print</button>
@@ -374,6 +376,19 @@
   <div id="proposal" class="proposal"></div>
 </div>
 
+<div id="step-5" class="hidden">
+  <div class="actions no-print" style="margin-bottom:1rem">
+    <button class="btn" onclick="backFromSpecs()">← Back to estimate</button>
+    <button class="btn btn-primary" id="spec-genall" onclick="genAllSpecPhotos()">📷 Generate all photos</button>
+    <button class="btn btn-green" onclick="window.print()">🖨 Print / Save as PDF</button>
+  </div>
+  <div class="proposal">
+    <h2 style="margin-bottom:.25rem">Materials &amp; specifications</h2>
+    <p class="hint" style="margin-bottom:.5rem">Every item in this estimate with its material type. Photos are AI-generated illustrations of the specified item, not manufacturer product photos — generated once and remembered in this browser.</p>
+    <div id="specs"></div>
+  </div>
+</div>
+
 </div>
 <script>
 window.addEventListener('error',function(e){
@@ -381,7 +396,7 @@ window.addEventListener('error',function(e){
   if(el){ el.textContent='Script error: '+(e.message||'unknown')+'  — please report this.'; el.classList.remove('hidden'); }
 });
 </script>
-<script src="app.js?v=20260930-soe"></script>
+<script src="app.js?v=20260930-specs"></script>
 
 <!-- 3D RENDERING MODAL -->
 <div id="rendering-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,20,38,.93);overflow:auto;">

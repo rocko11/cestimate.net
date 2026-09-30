@@ -10,9 +10,9 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
   }
 
-  let prompt, referenceImage;
+  let prompt, referenceImage, size, quality;
   try {
-    ({ prompt, referenceImage } = JSON.parse(event.body || '{}'));
+    ({ prompt, referenceImage, size, quality } = JSON.parse(event.body || '{}'));
   } catch {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) };
   }
@@ -32,7 +32,9 @@ exports.handler = async (event) => {
     : 'https://api.openai.com/v1/images/generations';
   const payload = hasReference
     ? { model: 'gpt-image-1', prompt: prompt.slice(0, 4000), images: [{ image_url: referenceImage }], size: '1536x1024', quality: 'medium', n: 1 }
-    : { model: 'gpt-image-1', prompt: prompt.slice(0, 4000), size: '1536x1024', quality: 'medium', n: 1 };
+    : { model: 'gpt-image-1', prompt: prompt.slice(0, 4000),
+        size: ['1024x1024','1536x1024','1024x1536'].includes(size) ? size : '1536x1024',
+        quality: ['low','medium','high'].includes(quality) ? quality : 'medium', n: 1 };
 
   try {
     const resp = await fetch(endpoint, {

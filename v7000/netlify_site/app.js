@@ -1193,6 +1193,10 @@ async function exportExcel(){
   XLSX.utils.book_append_sheet(wb,ws4,'Labor & Schedule');
 
   const pname=(getV('m-name')||'project').replace(/[^a-z0-9]+/gi,'_').toLowerCase();
+  const specAOA=[['MATERIALS & SPECIFICATIONS'],[],['Division','Item','Material / type','Description','Qty','Unit']];
+  specRows().forEach(r=>{ const sp=specFor(r.name); specAOA.push([r.div,r.name,sp.mat,sp.desc,Math.round((+r.qty||0)*10)/10,r.unit]); });
+  const wsS=XLSX.utils.aoa_to_sheet(specAOA); wsS['!cols']=[{wch:30},{wch:42},{wch:60},{wch:60},{wch:10},{wch:6}];
+  XLSX.utils.book_append_sheet(wb,wsS,'Materials & Specs');
   XLSX.writeFile(wb, pname+'_material_takeoff.xlsx');
 }
 
@@ -1767,3 +1771,123 @@ function shadeColor(hex,pct){
   return '#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('');
 }
 
+/* ============ MATERIALS & SPECS PAGE ============ */
+/* One entry per takeoff line: what it is, what it's made of, and how to
+   picture it. kind 'product' = studio product shot, 'work' = job-site photo. */
+const SPEC_CATALOG={
+  'Excavation & soil export':{mat:'Excavated soil, trucked to licensed disposal/fill site',desc:'Machine excavation of the building footprint to cellar depth, loaded and hauled off-site.',kind:'work',photo:'an excavator digging a rectangular cellar pit on a narrow Brooklyn lot, dump truck being loaded'},
+  'Support of excavation (SOE) — soldier piles & lagging':{mat:'Steel H-pile soldier beams with timber lagging boards',desc:'Temporary earth retention around the excavation so soil and neighboring lots stay in place.',kind:'work',photo:'steel soldier piles with horizontal timber lagging retaining the side of a deep urban excavation'},
+  'Underpinning of adjacent buildings':{mat:'Cast-in-place concrete underpinning pits, dry-packed',desc:'Extends neighboring building foundations below the new excavation, dug and poured in short sequenced sections.',kind:'work',photo:'concrete underpinning pits beneath an old brick party wall next to an excavation'},
+  'Piles (steel pipe / helical, installed)':{mat:'Steel pipe or helical piles, galvanized, with pile caps',desc:'Deep foundation elements that carry building loads down to competent soil or rock.',kind:'work',photo:'a drill rig installing steel pipe piles on a small urban construction site'},
+  'Foundation (footings, mat, walls)':{mat:'Reinforced concrete, 4,000–5,000 psi, rebar',desc:'Footings, mat slab and cellar walls that carry the building to the ground.',kind:'work',photo:'reinforced concrete foundation walls and footing with rebar and formwork'},
+  'Below-grade waterproofing':{mat:'Sheet or fluid-applied membrane with drainage board',desc:'Keeps groundwater out of the cellar walls and slab.',kind:'work',photo:'black waterproofing membrane and dimpled drainage board on a concrete foundation wall'},
+  'Utility connections':{mat:'Water, sewer, gas and electric service taps',desc:'New service connections from the street mains (DEP water/sewer, Con Ed gas/electric).',kind:'work',photo:'utility trench from a Brooklyn street to a building with new water and sewer pipes'},
+  'Concrete superstructure — frame, slabs & roof deck':{mat:'Reinforced concrete flat-plate slabs and columns',desc:'The building frame: columns, floor slabs and roof deck.',kind:'work',photo:'mid-rise reinforced concrete frame under construction with flat slabs and columns'},
+  'Exterior facade (new skin)':{mat:'Brick veneer / fiber-cement panel on metal stud backup',desc:'Finished exterior walls of the building.',kind:'product',photo:'a modern Brooklyn apartment building facade with dark brick and large windows'},
+  'Air/vapor barrier & insulation':{mat:'Fluid-applied air barrier + 2–3" mineral wool continuous insulation',desc:'Continuous insulation and air seal behind the facade for energy code.',kind:'work',photo:'mineral wool insulation boards fastened over an air barrier on an exterior wall'},
+  'Selective interior demolition':{mat:'Removal of existing partitions, finishes and fixtures',desc:'Strip-out of the existing interior to prepare for the new layout.',kind:'work',photo:'interior demolition inside an old loft building, exposed brick and debris'},
+  'Debris removal & disposal':{mat:'Construction & demolition debris, dumpsters/containers',desc:'Hauling and legal disposal of demolition debris.',kind:'work',photo:'a construction dumpster full of demolition debris outside a brick building'},
+  'Asbestos / hazmat abatement':{mat:'Licensed removal of asbestos/lead materials',desc:'Removal of hazardous materials found in the pre-demolition survey.',kind:'work',photo:'abatement workers in white protective suits inside a sealed plastic containment area'},
+  'Brick repointing — facade':{mat:'Type N/O lime mortar matched to existing',desc:'Grinding out and re-mortaring deteriorated brick joints.',kind:'work',photo:'close-up of a mason repointing old red brick joints with fresh mortar'},
+  'New CMU bearing/shaft walls':{mat:'8" concrete masonry units, reinforced and grouted, 2-hr rated',desc:'Block walls for stairs, elevator shaft and fire separations.',kind:'product',photo:'a wall of grey 8 inch concrete masonry blocks with mortar joints'},
+  'Existing floor structure mod / reinf':{mat:'Steel beams / sistered joists at existing floors',desc:'Reinforcing existing floors for new loads and openings.',kind:'work',photo:'new steel beam installed under an existing timber floor in an old building'},
+  'Blocking, backing, rough carpentry':{mat:'Fire-retardant treated lumber and plywood',desc:'Wood blocking inside walls for cabinets, grab bars, TVs and trim.',kind:'product',photo:'fire retardant treated 2x lumber blocking between metal studs'},
+  'Egress stairs (steel pan + concrete)':{mat:'Steel stringers, steel pan treads filled with concrete, steel rails',desc:'Fire exit stairs between all floors.',kind:'product',photo:'a steel pan egress stair with concrete-filled treads and a painted steel railing'},
+  'Misc metals — railings, guards':{mat:'Painted steel railings and guards, 42" high',desc:'Guards, handrails and miscellaneous steel items.',kind:'product',photo:'a black painted steel guardrail and handrail on a stair landing'},
+  'Roofing membrane':{mat:'Modified bitumen or TPO roofing membrane',desc:'New watertight roof system.',kind:'work',photo:'a flat roof with a new white TPO roofing membrane on a city building'},
+  'Roof insulation':{mat:'Tapered polyiso insulation boards',desc:'Insulation under the roof membrane, sloped to drains.',kind:'product',photo:'stacked tapered polyisocyanurate roof insulation boards'},
+  'Exterior wall insulation (int. face)':{mat:'Closed-cell spray foam or mineral wool at inside face of exterior walls',desc:'Insulating existing masonry walls from the inside.',kind:'work',photo:'closed cell spray foam insulation on the inside of an old brick wall between studs'},
+  'Caulking & sealants':{mat:'Silicone and polyurethane sealants',desc:'Sealing joints at windows, doors and facade.',kind:'product',photo:'a caulk gun applying a bead of grey sealant around a window frame'},
+  'Inner court / curtain wall system':{mat:'Aluminum curtain wall with insulated glass',desc:'Glazed walls enclosing the inner light court.',kind:'product',photo:'an aluminum curtain wall with large insulated glass panels facing an inner courtyard'},
+  'Windows (replacement)':{mat:'Aluminum or fiberglass double-hung/casement, insulated low-E glass',desc:'New energy-efficient windows in existing openings.',kind:'product',photo:'a black aluminum double-hung window with insulated low-e glass, isolated'},
+  'Apartment / entry doors (metal)':{mat:'Hollow metal door & frame, 3\'-0" × 7\'-0", 20-min rated, lever lockset, closer, peephole',desc:'Front door of each apartment, off the public corridor.',kind:'product',photo:'a painted dark grey hollow metal apartment entry door with lever handle and peephole'},
+  'Stair / fire-rated doors (metal)':{mat:'Hollow metal door & frame, 1½-hr rated, closer, panic hardware, rated label',desc:'Self-closing fire doors into stairs and rated corridors.',kind:'product',photo:'a red painted hollow metal fire rated stair door with push bar and door closer'},
+  'Interior doors (solid wood)':{mat:'Solid wood door, 8\'-0" high, with a horizontal design line (routed groove) across the door',desc:'Bedroom, bathroom and closet doors inside each unit.',kind:'product',photo:'a tall 8 foot solid wood interior door painted white with a single horizontal routed design line across it, modern lever handle'},
+  'Metal stud partition framing':{mat:'Light-gauge galvanized steel studs & track, 3-5/8" typical',desc:'Framing for all new interior walls.',kind:'product',photo:'galvanized steel metal stud wall framing with top and bottom track'},
+  'Gypsum board (5/8" Type X)':{mat:'5/8" Type X fire-rated gypsum board, taped & finished',desc:'Wall and ceiling board over framing, fire rated.',kind:'product',photo:'stacked 5/8 inch type X fire rated gypsum drywall boards'},
+  'Porcelain tile — bath & kitchen':{mat:'Porcelain tile, 12×24 floor / 3×12 wall, on waterproofing',desc:'Tile floors and walls in bathrooms and kitchen backsplashes.',kind:'product',photo:'a modern bathroom with large format grey porcelain floor tile and white wall tile'},
+  'Resilient flooring (LVT)':{mat:'Luxury vinyl plank, 20-mil wear layer, oak look',desc:'Floor finish in living rooms, bedrooms and halls.',kind:'product',photo:'light oak look luxury vinyl plank flooring in an apartment living room'},
+  'Painting — walls & ceilings':{mat:'Low-VOC latex, primer + 2 coats (eggshell walls, flat ceilings)',desc:'Paint on all new walls and ceilings.',kind:'work',photo:'freshly painted white apartment walls and ceiling with a paint roller'},
+  'Specialty ceilings / soffits':{mat:'Gypsum board soffits and drop ceilings on metal framing',desc:'Dropped ceilings to hide ducts and pipes.',kind:'work',photo:'a gypsum board drop soffit in an apartment hallway hiding ductwork'},
+  'Kitchen casework & countertops':{mat:'Flat-panel cabinets with quartz countertop',desc:'Full kitchen cabinets and countertops per unit.',kind:'product',photo:'a compact modern apartment kitchen with flat panel cabinets and white quartz countertop'},
+  'Bathroom vanities & accessories':{mat:'Wall-hung vanity, porcelain sink, mirror, towel bars, grab-bar blocking',desc:'Vanity and accessories in each bathroom.',kind:'product',photo:'a wall-hung bathroom vanity with integrated white sink and mirror'},
+  'Appliance packages':{mat:'Stainless range, refrigerator, dishwasher, microwave/hood',desc:'Kitchen appliances for each unit.',kind:'product',photo:'a set of stainless steel kitchen appliances: range, refrigerator and dishwasher'},
+  'Passenger elevator':{mat:'Machine-room-less traction elevator, stainless cab',desc:'Passenger elevator serving all floors.',kind:'product',photo:'a modern passenger elevator with brushed stainless steel doors in a lobby'},
+  'Plumbing systems (units, risers, common, DHW)':{mat:'PEX/copper water, cast-iron/PVC waste, fixtures, water heaters',desc:'All water, waste, vent and hot-water piping and fixtures.',kind:'work',photo:'new copper and PEX plumbing pipes and cast iron drain risers in an open wall'},
+  'Fire sprinkler (NFPA 13R)':{mat:'Black steel / CPVC sprinkler piping with concealed heads',desc:'Automatic fire sprinkler system throughout.',kind:'product',photo:'a concealed white fire sprinkler head in a ceiling'},
+  'Outdoor condensing units':{mat:'Inverter heat-pump condensers, roof-mounted',desc:'Outdoor units for the heating/cooling system.',kind:'product',photo:'a row of inverter heat pump condensing units on a flat roof'},
+  'Indoor AC units (1 per room)':{mat:'Ductless wall-mounted heat pump head (mini-split)',desc:'One heating/cooling unit in each room ≥ 8×8 ft with a window.',kind:'product',photo:'a white ductless mini split wall mounted air conditioner unit, isolated'},
+  'Exhaust fans (kitchen + bath)':{mat:'Quiet ceiling exhaust fans, ducted to exterior',desc:'Bathroom and kitchen ventilation.',kind:'product',photo:'a white ceiling bathroom exhaust fan grille'},
+  'Refrigerant piping & insulation':{mat:'Insulated copper refrigerant line sets',desc:'Piping between the outdoor and indoor AC units.',kind:'product',photo:'coiled insulated copper refrigerant line set for a mini split'},
+  'Exhaust ductwork & goosenecks':{mat:'Galvanized sheet-metal ductwork and roof goosenecks',desc:'Ducts from exhaust fans to the roof.',kind:'product',photo:'galvanized sheet metal exhaust ductwork'},
+  'Install, controls, balancing (TAB)':{mat:'Thermostats, controls, testing & balancing',desc:'Controls and commissioning of the HVAC system.',kind:'product',photo:'a modern wall thermostat in an apartment'},
+  'Electrical (service, distribution, units, fixtures, fire alarm)':{mat:'Copper wiring, panels, devices, LED fixtures, fire alarm',desc:'Electrical service, apartment panels, outlets, lighting and fire alarm.',kind:'work',photo:'an open electrical panel with neatly organized copper wiring and breakers'},
+};
+function specFor(name){
+  if(SPEC_CATALOG[name]) return SPEC_CATALOG[name];
+  const k=Object.keys(SPEC_CATALOG).find(x=>x.split(' ')[0]===String(name).split(' ')[0]&&String(name).includes(x.split(' — ')[0]));
+  return k?SPEC_CATALOG[k]:{mat:'—',desc:'Custom line item',kind:'product',photo:String(name)};
+}
+const PHOTO_KEY='cest-photo-v1:';
+const photoMem={};
+function getPhoto(name){ if(photoMem[name]) return photoMem[name]; try{ const v=localStorage.getItem(PHOTO_KEY+name); if(v){ photoMem[name]=v; return v; } }catch(e){} return null; }
+function putPhoto(name,url){ photoMem[name]=url; try{ localStorage.setItem(PHOTO_KEY+name,url); }catch(e){} }
+
+function openSpecs(){ renderSpecs(); hide('step-3'); show('step-5'); window.scrollTo(0,0); track('specs_opened'); }
+function backFromSpecs(){ hide('step-5'); show('step-3'); }
+
+function specRows(){
+  return (lastRows||[]).filter(r=>!r.excl&&(+r.qty||0)>0);
+}
+function renderSpecs(){
+  const el=document.getElementById('specs'); if(!el) return;
+  const rows=specRows(); let html=''; let cur='';
+  rows.forEach((r,i)=>{
+    if(r.div!==cur){ if(cur) html+='</div>'; cur=r.div; html+=`<h3 class="spec-div">${esc2(r.div)}</h3><div class="spec-grid">`; }
+    const s=specFor(r.name); const ph=getPhoto(r.name);
+    const q=(+r.qty>=100?Math.round(r.qty).toLocaleString():(+r.qty).toFixed(+r.qty%1?1:0))+' '+esc2(r.unit||'');
+    html+=`<div class="spec-card">
+      <div class="spec-img" id="spec-img-${i}">${ph?`<img src="${ph}" alt="${esc2(r.name)}">`:`<button class="btn no-print" onclick="genSpecPhoto(${i})">📷 Generate photo</button>`}</div>
+      <div class="spec-body"><div class="spec-name">${esc2(r.name)}</div>
+      <div class="spec-mat">${esc2(s.mat)}</div>
+      <div class="spec-desc">${esc2(s.desc)}</div>
+      <div class="spec-qty">Qty: <strong>${q}</strong></div></div></div>`;
+  });
+  if(cur) html+='</div>';
+  el.innerHTML=html||'<p>No items in the estimate yet.</p>';
+  const miss=rows.filter(r=>!getPhoto(r.name)).length;
+  const b=document.getElementById('spec-genall'); if(b) b.textContent=miss?`📷 Generate all photos (${miss})`:'✓ All photos ready';
+}
+async function genSpecPhoto(i){
+  const r=specRows()[i]; if(!r) return;
+  const box=document.getElementById('spec-img-'+i); if(box) box.innerHTML='<div class="spec-wait">Generating photo…</div>';
+  const s=specFor(r.name);
+  const prompt=(s.kind==='work'
+    ?`Realistic construction site photograph: ${s.photo}. New York City. Natural daylight, documentary style.`
+    :`Realistic product photograph for a construction materials catalog: ${s.photo}. Plain light grey studio background, soft even lighting.`)
+    +' Material: '+s.mat+'. No text, no logos, no watermarks, no people\'s faces.';
+  try{
+    const resp=await fetch('/.netlify/functions/render-facade',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({prompt,size:'1024x1024',quality:'low'})});
+    const d=await resp.json().catch(()=>({}));
+    if(!resp.ok||!d.image) throw new Error(d.error||('error '+resp.status));
+    const url=await shrinkImage('data:image/png;base64,'+d.image,480);
+    putPhoto(r.name,url);
+    if(box) box.innerHTML=`<img src="${url}" alt="${esc2(r.name)}">`;
+    track('spec_photo');
+  }catch(e){
+    if(box) box.innerHTML=`<div class="spec-wait err">Photo unavailable: ${esc2(e.message)}<br><button class="btn no-print" onclick="genSpecPhoto(${i})">Retry</button></div>`;
+  }
+  const miss=specRows().filter(x=>!getPhoto(x.name)).length;
+  const b=document.getElementById('spec-genall'); if(b) b.textContent=miss?`📷 Generate all photos (${miss})`:'✓ All photos ready';
+}
+async function genAllSpecPhotos(){
+  const idx=specRows().map((r,i)=>getPhoto(r.name)?-1:i).filter(i=>i>=0);
+  for(let k=0;k<idx.length;k+=3) await Promise.all(idx.slice(k,k+3).map(genSpecPhoto));
+}
+function shrinkImage(src,max){
+  return new Promise(res=>{ const img=new Image(); img.onload=()=>{ const sc=Math.min(1,max/Math.max(img.width,img.height));
+    const c=document.createElement('canvas'); c.width=Math.round(img.width*sc); c.height=Math.round(img.height*sc);
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height); res(c.toDataURL('image/jpeg',0.82)); };
+    img.onerror=()=>res(src); img.src=src; });
+}
