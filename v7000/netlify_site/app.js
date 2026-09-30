@@ -722,7 +722,7 @@ function buildTakeoff(m){
   ]});
 
   divs.push({div:'11 · Kitchens, Baths & Appliances', items:[
-    {n:'Kitchen casework & countertops', basis:'Per unit', qty:m.units, u:'EA', p:12000, mh:15, trade:'millwork', src:'Mid-grade'},
+    {n:'Kitchen casework & countertops', basis:'Per unit', qty:m.units, u:'EA', p:5000, mh:15, trade:'millwork', src:'Mid-grade'},
     {n:'Bathroom vanities & accessories', basis:'≈1.6 baths/unit', qty:m.units*1.6, u:'EA', p:3200, mh:5, trade:'millwork', src:'incl ADA reinf'},
     {n:'Appliance packages', basis:'Per unit', qty:m.units, u:'EA', p:4500, mh:3.5, trade:'laborer', src:'Range, fridge, DW'},
   ]});
