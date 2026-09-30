@@ -944,6 +944,56 @@ function recalc(){
 
   lastRows=exportRows;
   lastTotals={direct,gc,op,cont,grand,psf,gcPct,opPct,contPct,m,matTot,labTot,marginPct,sell};
+  try{ renderMarketCompare(); }catch(e){ console.warn(e); }
+}
+
+/* ============ MARKET REPORT (no company pricing rules) ============ */
+// Current NYC market installed prices for the lines where our own rules apply.
+// Lines tagged "mkt-adj −30%" are restored to full market (÷0.7). Everything
+// else is already priced at market. Location factor applies to every line.
+const MARKET_PRICE={
+  'Foundation (footings, mat, walls)':70,
+  'Concrete superstructure — frame, slabs & roof deck':65,
+  'Plumbing systems (units, risers, common, DHW)':35,
+  'Fire sprinkler (NFPA 13R)':9,
+  'Electrical (service, distribution, units, fixtures, fire alarm)':32,
+  'Apartment / entry doors (metal)':2800,
+  'Stair / fire-rated doors (metal)':3200,
+  'Interior doors (solid wood)':1100,
+  'Kitchen casework & countertops':12000,
+};
+function marketPrice(it){
+  if(it.custom) return it.p;
+  if(MARKET_PRICE[it.n]!=null) return MARKET_PRICE[it.n];
+  if(/mkt-adj/.test(it.src||'')) return Math.round(it.p/0.7*100)/100;
+  return it.p;
+}
+function computeMarket(){
+  const m=metrics(); const locMult=m.boro*m.ctype*m.occ;
+  const divs=buildTakeoff(m);
+  customRows.forEach((c,i)=>{ let d=divs.find(x=>x.div===c.div); if(!d){ d={div:c.div,items:[]}; divs.push(d); } d.items.push(Object.assign({},c,{_ci:i})); });
+  const rows=[]; let direct=0,matTot=0,labTot=0;
+  divs.forEach(d=>d.items.forEach(it=>{
+    const id=slug(d.div.split('·')[0])+'-'+slug(it.n); const o=overrides[id]||{};
+    const qty=(o.qty!=null?o.qty:(o.qty===null?0:it.qty));       // your quantity edits still apply
+    const price=marketPrice(it);                                   // your price edits do not
+    const excl=!!o.excl;
+    const ext=excl?0:qty*price*locMult;
+    let lab=excl?0:qty*(it.mh||0)*(TRADE_DEFAULTS[it.trade]||90);   // open-shop market wages, no adjustment
+    if(lab>ext) lab=ext; const mat=Math.max(ext-lab,0);
+    direct+=ext; matTot+=mat; labTot+=lab;
+    rows.push({div:d.div,name:it.n,basis:it.basis||'',qty,unit:it.u,price,loc:locMult,mat,lab,ext,src:it.src||'',mh:it.mh,trade:it.trade,excl});
+  }));
+  const gcPct=+getV('gc-pct')||0, opPct=+getV('op-pct')||0, contPct=+getV('cont-pct')||0, marginPct=+getV('margin-pct')||0;
+  const gc=direct*gcPct/100, op=(direct+gc)*opPct/100, pre=direct+gc+op, cont=pre*contPct/100, grand=pre+cont;
+  const sell=marginPct>0&&marginPct<100?grand/(1-marginPct/100):grand;
+  return {rows,totals:{direct,gc,op,cont,grand,psf:m.gfa>0?grand/m.gfa:0,gcPct,opPct,contPct,m,matTot,labTot,marginPct,sell}};
+}
+function renderMarketCompare(){
+  const el=document.getElementById('mkt-compare'); if(!el||!lastTotals||!lastTotals.grand) return;
+  const mk=computeMarket().totals; const ours=lastTotals.grand, diff=mk.grand-ours;
+  el.innerHTML=`<div class="r"><span class="l">Current market estimate (no company rules)</span><span class="v">${fmtM(mk.grand)}</span></div>
+    <div class="r"><span class="l">${diff>=0?'Our estimate is below market by':'Our estimate is above market by'}</span><span class="v">${fmtM(Math.abs(diff))} (${(Math.abs(diff)/mk.grand*100).toFixed(1)}%)</span></div>`;
 }
 
 /* ============ SEND TO DEAL BUILDER ============ */
@@ -1092,8 +1142,18 @@ function ensureXLSX(){
     if(typeof XLSX==='undefined') throw new Error('Could not load the Excel library.');
   })();
 }
-async function exportExcel(){
-  track('excel_export');
+async function exportExcel(mode){
+  if(mode==='market'){
+    const mk=computeMarket(); const keep=[lastRows,lastTotals];
+    lastRows=mk.rows; lastTotals=mk.totals; exportMode='market';
+    try{ await exportExcelCore(keep[0]); } finally { lastRows=keep[0]; lastTotals=keep[1]; exportMode='rules'; }
+    return;
+  }
+  exportMode='rules'; return exportExcelCore(null);
+}
+let exportMode='rules';
+async function exportExcelCore(ruleRows){
+  track('excel_export',{mode:exportMode});
   try{ await ensureXLSX(); }
   catch(e){ alert(e.message+'\n\nThe on-screen takeoff is unaffected — try the download again with an internet connection.'); return; }
   const {direct,gc,op,cont,grand,psf,gcPct,opPct,contPct,m}=lastTotals;
@@ -1102,6 +1162,7 @@ async function exportExcel(){
   // Sheet 1: Inputs
   const inAOA=[
     ['MATERIAL TAKEOFF — INPUTS & ASSUMPTIONS'],
+    [exportMode==='market'?'REPORT BASIS: Current NYC market pricing & open-shop market labor — company pricing rules NOT applied':'REPORT BASIS: P National Group estimate — company pricing rules applied'],
     [getV('m-name')||'Project', '', '', 'DOB Job# '+(getV('m-job')||'')],
     [],
     ['Building metric','Value','Unit'],
@@ -1197,7 +1258,17 @@ async function exportExcel(){
   specRows().forEach(r=>{ const sp=specFor(r.name); specAOA.push([r.div,r.name,sp.mat,sp.desc,Math.round((+r.qty||0)*10)/10,r.unit]); });
   const wsS=XLSX.utils.aoa_to_sheet(specAOA); wsS['!cols']=[{wch:30},{wch:42},{wch:60},{wch:60},{wch:10},{wch:6}];
   XLSX.utils.book_append_sheet(wb,wsS,'Materials & Specs');
-  XLSX.writeFile(wb, pname+'_material_takeoff.xlsx');
+  if(exportMode==='market'&&ruleRows){
+    const byName={}; ruleRows.forEach(r=>{ byName[r.div+'|'+r.name]=r; });
+    const cmp=[['OUR ESTIMATE vs CURRENT MARKET'],[],['Division','Item','Our unit price','Market unit price','Our total','Market total','Difference']];
+    let a=0,b=0;
+    lastRows.filter(r=>!r.excl).forEach(r=>{ const o=byName[r.div+'|'+r.name]||{price:0,ext:0}; a+=o.ext; b+=r.ext;
+      cmp.push([r.div,r.name,+(+o.price).toFixed(2),+(+r.price).toFixed(2),Math.round(o.ext),Math.round(r.ext),Math.round(r.ext-o.ext)]); });
+    cmp.push([],['','DIRECT COST TOTAL','','',Math.round(a),Math.round(b),Math.round(b-a)]);
+    const wsC=XLSX.utils.aoa_to_sheet(cmp); wsC['!cols']=[{wch:30},{wch:44},{wch:14},{wch:16},{wch:14},{wch:14},{wch:14}];
+    XLSX.utils.book_append_sheet(wb,wsC,'Ours vs Market');
+  }
+  XLSX.writeFile(wb, pname+(exportMode==='market'?'_MARKET_takeoff.xlsx':'_material_takeoff.xlsx'));
 }
 
 /* ============ BACKEND SELF-TEST ============ */

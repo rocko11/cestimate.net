@@ -236,7 +236,8 @@
   </div>
 
   <div class="actions" style="margin-top:0;margin-bottom:1rem">
-    <button class="btn btn-green" onclick="exportExcel()">⬇ Download Excel takeoff</button>
+    <button class="btn btn-green" onclick="exportExcel()">⬇ Our estimate (Excel)</button>
+    <button class="btn" onclick="exportExcel('market')" style="border-color:var(--green);color:var(--green);font-weight:600">⬇ Market estimate (Excel)</button>
     <button class="btn" onclick="sendToDealBuilder()" style="background:#1a7f5a;color:#fff;border-color:#1a7f5a;font-weight:600" title="Send all hard costs, unit counts &amp; building metrics to Deal Builder">🔗 Send to Deal Builder →</button>
     <button class="btn" onclick="openRendering()" style="background:#1a3a6b;color:#fff;border-color:#1a3a6b;font-weight:600" title="Generate 3D rendering from building metrics">🏗 3D Rendering</button>
     <button class="btn" onclick="backToVerify()">← Adjust inputs</button>
@@ -317,6 +318,7 @@
       <span class="l">Sell price at <span id="margin-l">0</span>% margin</span>
       <span class="v" id="t-sell" style="margin-left:auto">—</span>
     </div>
+    <div id="mkt-compare" style="margin-top:.5rem;padding-top:.5rem;border-top:1px dashed var(--line)"></div>
   </div>
 
   <div class="note warn" style="margin-top:1rem">Accuracy ±20–30%, pre-bid. Items from plan schedules (windows, doors, HVAC equipment, elevators) are counted; area/length materials (GWB, partitions, paint, insulation) are derived using standard takeoff factors. Excludes soft costs (design fees, DOB filing/inspection fees, financing, insurance, FF&amp;E). Verify against dimensioned drawings before bid.</div>
@@ -396,7 +398,7 @@ window.addEventListener('error',function(e){
   if(el){ el.textContent='Script error: '+(e.message||'unknown')+'  — please report this.'; el.classList.remove('hidden'); }
 });
 </script>
-<script src="app.js?v=20260930-specs2"></script>
+<script src="app.js?v=20260930-market"></script>
 
 <!-- 3D RENDERING MODAL -->
 <div id="rendering-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,20,38,.93);overflow:auto;">
