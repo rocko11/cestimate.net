@@ -271,18 +271,22 @@ async function analyzePlans(){
     }
     if(!results.length) throw new Error(lastErr || 'no pages could be read');
     const {merged,missing}=mergeExtractions(results);
-    const noSchedule=['doorsEntry','doorsStair','doorsInterior'].every(k=>merged[k]==null||merged[k]===-1);
-    doorInfo={source:noSchedule?'none':'schedule',sheets:[]};
-    if(noSchedule){
+    const blank=k=>merged[k]==null||merged[k]===-1;
+    const need={doors:['doorsEntry','doorsStair','doorsInterior'].every(blank), windows:blank('windows'), ac:blank('hvacIndoor')};
+    planInfo={doors:need.doors?'none':'schedule',windows:need.windows?'none':'schedule',ac:need.ac?'none':'schedule',sheets:[]};
+    if(need.doors||need.windows||need.ac){
       try{
-        const dc=await countDoorsFromPlans(results,msg,sub);
-        if(dc.sheets.length){
-          merged.doorsEntry=dc.entry; merged.doorsStair=dc.stair; merged.doorsInterior=dc.interior;
-          doorInfo={source:'plans',sheets:dc.sheets};
-          ['Entry doors','Stair/fire doors','Interior doors'].forEach(l=>{ const i=missing.indexOf(l); if(i>=0) missing.splice(i,1); });
-          track('doors_counted',{sheets:dc.sheets.length,total:dc.entry+dc.stair+dc.interior});
+        const pc=await countFromPlans(results,msg,sub);
+        if(pc.sheets.length){
+          planInfo.sheets=pc.sheets;
+          const drop=l=>{ const i=missing.indexOf(l); if(i>=0) missing.splice(i,1); };
+          if(need.doors){ merged.doorsEntry=pc.entry; merged.doorsStair=pc.stair; merged.doorsInterior=pc.interior;
+            planInfo.doors='plans'; ['Entry doors','Stair/fire doors','Interior doors'].forEach(drop); }
+          if(need.windows){ merged.windows=pc.windows; planInfo.windows='plans'; drop('Windows'); }
+          if(need.ac){ merged.hvacIndoor=pc.acRooms; planInfo.ac='plans'; drop('HVAC indoor units'); }
+          track('plans_counted',{sheets:pc.sheets.length,doors:pc.entry+pc.stair+pc.interior,windows:pc.windows,ac:pc.acRooms});
         }
-      }catch(e){ console.warn('door count failed',e); }
+      }catch(e){ console.warn('plan count failed',e); }
     }
     fillMetrics(merged);
     showExtractNote(results.length, files.length, missing);
@@ -344,11 +348,19 @@ function showExtractNote(ok,total,missing){
   const el=document.getElementById('extract-note');
   if(!el) return;
   let h=`<span class="ai-badge">AI-extracted</span> &nbsp;Read <strong>${ok} of ${total}</strong> file(s), scanning every page and schedule. Review the values and correct anything off — purple fields were auto-filled; all are editable.`;
-  if(doorInfo&&doorInfo.source==='plans'){
-    const tot=doorInfo.sheets.reduce((a,x)=>a+(x.entry+x.stair+x.interior)*x.mult,0);
-    h+=`<br><br><strong>Doors: ${tot} counted from the floor plans</strong> (no door schedule found) — `+
-      doorInfo.sheets.map(x=>`${esc2(x.sheet)}: ${x.entry+x.stair+x.interior}${x.mult>1?' × '+x.mult+' floors':''}`).join(' · ')+
-      `. Counted from door swings/tags on each plan; verify before bid.`;
+  if(planInfo&&planInfo.sheets.length&&(planInfo.doors==='plans'||planInfo.windows==='plans'||planInfo.ac==='plans')){
+    const sum=f=>planInfo.sheets.reduce((a,x)=>a+f(x)*x.mult,0);
+    const parts=[];
+    if(planInfo.doors==='plans') parts.push(`<strong>${sum(x=>x.entry+x.stair+x.interior)} doors</strong>`);
+    if(planInfo.windows==='plans') parts.push(`<strong>${sum(x=>x.windows)} windows</strong>`);
+    if(planInfo.ac==='plans') parts.push(`<strong>${sum(x=>x.acRooms)} AC units</strong> (1 per room ≥ 8'×8' with a window)`);
+    h+=`<br><br>Counted from the floor plans (no schedule found): ${parts.join(', ')}.<br>`+
+      planInfo.sheets.map(x=>{ const b=[];
+        if(planInfo.doors==='plans') b.push((x.entry+x.stair+x.interior)+' doors');
+        if(planInfo.windows==='plans') b.push(x.windows+' windows');
+        if(planInfo.ac==='plans') b.push(x.acRooms+' AC');
+        return `${esc2(x.sheet)}${x.mult>1?' (× '+x.mult+' floors)':''}: ${b.join(', ')}`; }).join(' · ')+
+      `. Verify before bid.`;
   }
   if(missing&&missing.length){
     h+=`<br><br><strong style="color:#b5340b">Not found on the sheets provided:</strong> ${missing.join(', ')}.<br>Enter these manually below, or go back and also upload the specific schedule sheet that lists them (e.g. window/door schedule, MEP equipment schedule).`;
@@ -373,7 +385,7 @@ UNIT COUNT — HIGHEST PRIORITY:
 - NYC filed plans often state a total like "TOTAL SEVENTY FIVE (75) CLASS \"A\" DWELLING UNITS" — the number is spelled out with the numeral in parentheses; use the numeral. If per-floor lines each state their own count (e.g. "9TH FLOOR: TEN (10) DWELLING UNITS"), sum them as a cross-check but report the explicit total when both are present.
 - Do NOT infer units by counting doors, rooms, or symbols on an individual floor-plan drawing — that consistently overcounts and should never be used as the source for this field.
 
-SCHEDULES: read every row, no skipping. Windows: sum QTY all rows. Doors: 3 separate counts (entry/stair/interior) — ONLY from a DOOR SCHEDULE table; never count door symbols on a plan for these fields (leave null if there is no door schedule). HVAC: CU outdoor + AH indoor separate. Unreadable table → -1. Not present → null.
+SCHEDULES: read every row, no skipping. Windows: sum QTY all rows of a WINDOW SCHEDULE table only (never count window symbols on a plan; null if no window schedule). Doors: 3 separate counts (entry/stair/interior) — ONLY from a DOOR SCHEDULE table; never count door symbols on a plan for these fields (leave null if there is no door schedule). HVAC: CU outdoor + AH indoor separate, ONLY from an HVAC/mechanical equipment schedule (null if none). Unreadable table → -1. Not present → null.
 
 Return ONE JSON object, no markdown:
 {"projectName":string|null,"dobJob":string|null,"borough":"Manhattan"|"Brooklyn"|"Queens"|"Bronx"|"Staten Island"|null,"address":string|null,"gfa":number|null,"nsf":number|null,"footprint":number|null,"floors":number|null,"cellar":0|1|null,"units":number|null,"f2f":number|null,"perimeter":number|null,"worktype":"new"|"conversion"|"gut"|"partial"|null,"constructionType":"I-A"|"I-B"|"II-A"|"II-B"|"III-A"|"III-B"|"V"|null,"occupancy":"R-2"|"R-3"|"B"|"A"|"M"|"I"|null,"court":0|1|null,"windows":number|null,"doorsEntry":number|null,"doorsStair":number|null,"doorsInterior":number|null,"hvacCondensers":number|null,"hvacIndoor":number|null,"exhaustFans":number|null,"elevators":number|null,"floorAreas":[{"name":string,"gross":number|null,"net":number|null}]|null,"sheetNumber":string|null,"sheetKind":"floor_plan"|"other","floorLabel":string|null,"typicalFloors":number|null}
@@ -385,16 +397,18 @@ JSON only. No extra text.`;
 // at high resolution and split into tiles, because door tags and swing arcs are
 // too small to read on a whole-sheet image. Tiles don't overlap; each door is
 // counted only in the tile that contains its hinge.
-let doorInfo=null;
-const DOOR_TILE_PROMPT=`You are counting DOORS on a tile cut from an architectural floor plan.
-A door is drawn as an opening in a wall with a thin straight line (the leaf) and a quarter-circle arc (the swing). Double doors have two arcs = count 2 leaves as ONE door opening. Sliding/pocket/bifold doors are drawn as thin rectangles or zigzags in an opening — count them too. Door tags are small circles with a letter+number (e.g. C1, B2) — use them to confirm, but also count doors without a tag.
-Count a door ONLY if its hinge point / opening is inside this tile. Ignore doors cut off at the tile edge whose opening you cannot see.
-Do NOT count: windows, cabinet or appliance doors, elevator car/hoistway doors, access panels, section or elevation markers, wall-type diamonds, window hexagons.
-Classify each door:
-- stair: door into a stair enclosure, or a fire-rated door in a stair/elevator lobby or fire-rated corridor.
-- entry: building street entrance/exit door, or the door from a public corridor/lobby/foyer INTO a dwelling unit.
-- interior: every other door (bedroom, bathroom, closet, utility, inside a unit).
-Return JSON only: {"entry":number,"stair":number,"interior":number}`;
+let planInfo=null;
+const PLAN_TILE_PROMPT=`You are counting items on ONE TILE cut from an architectural floor plan. Tiles do not overlap, so count only what belongs to THIS tile as defined below.
+
+1) DOORS — an opening in a wall with a thin straight leaf line and a quarter-circle swing arc. Double doors = ONE door. Sliding/pocket/bifold doors (thin rectangles or zigzags in an opening) count too. Door tags are small circles with letter+number (C1, B2) — use them to confirm, but also count untagged doors. Count a door only if its opening is inside this tile. Do NOT count cabinet/appliance doors, elevator doors or access panels. Classify:
+ - stair: door into a stair enclosure, or a fire-rated door at a stair/elevator lobby or rated corridor.
+ - entry: building street entrance/exit, or the door from a public corridor/lobby/foyer INTO a dwelling unit.
+ - interior: every other door.
+2) WINDOWS — window openings in exterior walls or court walls (parallel thin lines across the wall thickness, often with a hexagon window tag or "SP" note). Count each separate window opening once; a mulled pair counts as its units. Count a window only if its opening is inside this tile. Do NOT count openings noted to be closed up/infilled/removed, doors, louvers or skylights.
+3) acRooms — rooms INSIDE DWELLING UNITS that are at least 8'-0" x 8'-0" (at least 64 SF, neither side under 8') AND have at least one window. Typical: bedrooms, living/dining rooms, studies; a kitchen or other room also counts if it meets both rules. Rooms with "LIGHT PROP." / "VENT PROP." notes have windows. Use the printed SF and dimensions. Do NOT count bathrooms, closets, foyers, halls, corridors, stairs, lobbies, or any room without a window. Count a room only if its NAME LABEL (e.g. "BEDROOM 92 SF") is inside this tile.
+
+Return JSON only: {"entry":number,"stair":number,"interior":number,"windows":number,"acRooms":number}`;
+const PLAN_KEYS=['entry','stair','interior','windows','acRooms'];
 
 async function renderPageCanvas(entry,pageIdx,longSide){
   if(entry.file&&entry.file.type==='application/pdf'){
@@ -415,7 +429,7 @@ async function renderPageCanvas(entry,pageIdx,longSide){
   return c;
 }
 
-async function countDoorsOnSheet(entry,pageIdx,onTile){
+async function countOnSheet(entry,pageIdx,onTile){
   const c=await renderPageCanvas(entry,pageIdx,3600);
   const cols=c.width>=c.height?3:2, rows=c.width>=c.height?2:3;
   const tw=Math.ceil(c.width/cols), th=Math.ceil(c.height/rows);
@@ -425,14 +439,14 @@ async function countDoorsOnSheet(entry,pageIdx,onTile){
     t.getContext('2d').drawImage(c,q*tw,r*th,t.width,t.height,0,0,t.width,t.height);
     tiles.push(t.toDataURL('image/jpeg',0.9).split(',')[1]);
   }
-  const tot={entry:0,stair:0,interior:0}; let ok=0, done=0;
+  const tot={entry:0,stair:0,interior:0,windows:0,acRooms:0}; let ok=0, done=0;
   const run=async b64=>{
     for(let attempt=0;attempt<2;attempt++){
       try{
-        const j=parseJSON(await callExtractor([{media_type:'image/jpeg',data:b64}],'',DOOR_TILE_PROMPT));
-        if(j){ ['entry','stair','interior'].forEach(k=>{ const v=+j[k]; if(v>0&&v<200) tot[k]+=Math.round(v); }); ok++; }
+        const j=parseJSON(await callExtractor([{media_type:'image/jpeg',data:b64}],'',PLAN_TILE_PROMPT));
+        if(j){ PLAN_KEYS.forEach(k=>{ const v=+j[k]; if(v>0&&v<200) tot[k]+=Math.round(v); }); ok++; }
         break;
-      }catch(e){ if(attempt===1) console.warn('door tile failed',e); }
+      }catch(e){ if(attempt===1) console.warn('plan tile failed',e); }
     }
     done++; if(onTile) onTile(done,tiles.length);
   };
@@ -440,26 +454,26 @@ async function countDoorsOnSheet(entry,pageIdx,onTile){
   return ok?tot:null;
 }
 
-async function countDoorsFromPlans(results,msg,sub){
+async function countFromPlans(results,msg,sub){
   const seen=new Set(); const plans=[];
   results.forEach(r=>{
     if(!r||r.sheetKind!=='floor_plan'||!r._entry||typeof r._page!=='number') return;
     const key=(r.sheetNumber||'').replace(/\s/g,'').toUpperCase()||(r._entry.name+'#'+r._page);
     if(seen.has(key)) return; seen.add(key); plans.push(r);
   });
-  const out={entry:0,stair:0,interior:0,sheets:[]};
+  const out={entry:0,stair:0,interior:0,windows:0,acRooms:0,sheets:[]};
   for(let i=0;i<plans.length;i++){
     const r=plans[i]; const label=r.sheetNumber||r.floorLabel||('page '+(r._page+1));
-    if(msg) msg.textContent=`Counting doors on floor plan ${i+1} of ${plans.length}…`;
-    const t=await countDoorsOnSheet(r._entry,r._page,(d,n)=>{ if(sub) sub.textContent=label+' — section '+d+' of '+n; });
+    if(msg) msg.textContent=`Counting doors, windows & rooms — floor plan ${i+1} of ${plans.length}…`;
+    const t=await countOnSheet(r._entry,r._page,(d,n)=>{ if(sub) sub.textContent=label+' — section '+d+' of '+n; });
     if(!t) continue;
     const mult=(typeof r.typicalFloors==='number'&&r.typicalFloors>1&&r.typicalFloors<60)?Math.round(r.typicalFloors):1;
-    out.entry+=t.entry*mult; out.stair+=t.stair*mult; out.interior+=t.interior*mult;
+    PLAN_KEYS.forEach(k=>{ out[k]+=t[k]*mult; });
     out.sheets.push({sheet:label,mult,...t});
   }
   return out;
 }
-function doorBasis(){ return (doorInfo&&doorInfo.source==='plans')?'Counted from floor plans':'Count from schedule'; }
+function planBasis(k){ return (planInfo&&planInfo[k]==='plans')?(k==='ac'?'Rooms ≥8×8 with window (plans)':'Counted from floor plans'):'Count from schedule'; }
 function esc2(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
 function parseJSON(text){
@@ -514,7 +528,7 @@ function fillMetrics(p){
 }
 
 function clearMetrics(){
-  doorInfo=null;
+  planInfo=null;
   ['m-name','m-job','m-gfa','m-nsf','m-footprint','m-floors','m-units','m-f2f','m-perim',
    'm-windows','m-doors-entry','m-doors-stair','m-doors-int','m-hvac-cu','m-hvac-ah','m-exhaust','m-elev']
    .forEach(id=>setV(id,''));
@@ -691,10 +705,10 @@ function buildTakeoff(m){
 
   const courtItem = m.court ? [{n:'Inner court / curtain wall system', basis:'Lump', qty:1, u:'LS', p:185000, mh:550, trade:'glazier', src:'Light-well glazing'}] : [];
   divs.push({div:'08 · Openings (Doors & Windows)', items:[
-    !isNew && {n:'Windows (replacement)', basis:'Count from schedule', qty:m.windows, u:'EA', p:2750, mh:3, trade:'glazier', src:'Window schedule'},
-    {n:'Apartment / entry doors (metal)', basis:doorBasis(), qty:m.doorsEntry, u:'EA', p:400, mh:3.5, trade:'carpenter', src:'Metal door'},
-    {n:'Stair / fire-rated doors (metal)', basis:doorBasis(), qty:m.doorsStair, u:'EA', p:400, mh:3.5, trade:'carpenter', src:'Metal door'},
-    {n:'Interior doors (solid wood)', basis:doorBasis(), qty:m.doorsInt, u:'EA', p:300, mh:1.3, trade:'carpenter', src:'Solid wood door'},
+    !isNew && {n:'Windows (replacement)', basis:planBasis('windows'), qty:m.windows, u:'EA', p:2750, mh:3, trade:'glazier', src:'Window schedule'},
+    {n:'Apartment / entry doors (metal)', basis:planBasis('doors'), qty:m.doorsEntry, u:'EA', p:400, mh:3.5, trade:'carpenter', src:'Metal door'},
+    {n:'Stair / fire-rated doors (metal)', basis:planBasis('doors'), qty:m.doorsStair, u:'EA', p:400, mh:3.5, trade:'carpenter', src:'Metal door'},
+    {n:'Interior doors (solid wood)', basis:planBasis('doors'), qty:m.doorsInt, u:'EA', p:300, mh:1.3, trade:'carpenter', src:'Solid wood door'},
     ...courtItem,
   ].filter(Boolean)});
 
@@ -724,7 +738,7 @@ function buildTakeoff(m){
 
   divs.push({div:'23 · HVAC / Mechanical', items:[
     {n:'Outdoor condensing units', basis:'Count from schedule', qty:m.cu, u:'EA', p:5500, mh:15, trade:'hvac', src:'Roof condensers (avg)'},
-    {n:'Indoor air handlers / cassettes', basis:'Count from schedule', qty:m.ah, u:'EA', p:1700, mh:9, trade:'hvac', src:'Per unit zones (avg)'},
+    {n:'Indoor AC units (1 per room)', basis:planBasis('ac'), qty:m.ah, u:'EA', p:1700, mh:9, trade:'hvac', src:'Per unit zones (avg)'},
     {n:'Exhaust fans (kitchen + bath)', basis:'Count from schedule', qty:m.exh, u:'EA', p:320, mh:1.7, trade:'hvac', src:'Vented to roof'},
     {n:'Refrigerant piping & insulation', basis:'Per indoor unit', qty:m.ah, u:'EA', p:1200, mh:7, trade:'hvac', src:'R-410A insulated'},
     {n:'Exhaust ductwork & goosenecks', basis:'Per exhaust fan', qty:m.exh, u:'EA', p:2200, mh:9, trade:'hvac', src:'Roof terminations'},
