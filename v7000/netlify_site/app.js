@@ -1308,6 +1308,17 @@ async function exportExcelCore(ruleRows){
     const wsE=XLSX.utils.aoa_to_sheet(ea); wsE['!cols']=[{wch:44},{wch:12},{wch:12},{wch:10},{wch:34},{wch:30}];
     XLSX.utils.book_append_sheet(wb,wsE,'Electrical Breakdown');
   }catch(err){ console.warn('electrical sheet',err); }
+  try{
+    const p=plumbingBreakdown();
+    const pa=[['PLUMBING BREAKDOWN (NYC Plumbing Code)'],[],['Totals','Qty'],['Fixtures & connections',p.totals.fixtures],['Valves (in units)',p.totals.valves],
+      ['Waste stacks',p.totals.stacks],['Drainage fixture units (DFU)',p.totals.dfu],[],['FIXTURES','Where','Per unit','Building']];
+    p.fixtures.forEach(x=>pa.push([x.f,x.where,x.qty,x.qty*p.U]));
+    pa.push([],['VALVES','Per unit','Building']); p.valves.forEach(x=>pa.push([x.v,x.qty,x.qty*p.U]));
+    pa.push([],['RISERS & STACKS','Qty','Size','DFU each']); p.stacks.forEach(x=>pa.push([x.s,x.qty,x.size,x.dfu==null?'':x.dfu]));
+    pa.push([],['BUILDING SERVICES','Qty','Spec']); p.common.forEach(x=>pa.push([x.c,x.qty,x.spec]));
+    const wsP=XLSX.utils.aoa_to_sheet(pa); wsP['!cols']=[{wch:44},{wch:22},{wch:12},{wch:12}];
+    XLSX.utils.book_append_sheet(wb,wsP,'Plumbing Breakdown');
+  }catch(err){ console.warn('plumbing sheet',err); }
   if(exportMode==='market'&&ruleRows){
     const byName={}; ruleRows.forEach(r=>{ byName[r.div+'|'+r.name]=r; });
     const cmp=[['OUR ESTIMATE vs CURRENT MARKET'],[],['Division','Item','Our unit price','Market unit price','Our total','Market total','Difference']];
@@ -2026,11 +2037,7 @@ function shrinkImage(src,max){
 let elecWD=true;
 function electricalBreakdown(){
   const m=(lastTotals&&lastTotals.m)||metrics();
-  const U=Math.max(1,Math.round(m.units||0)), nsf=m.nsf>0?m.nsf:(m.gfa||0)*0.8;
-  const unitSF=nsf/U;
-  const acRooms=m.ah>0?m.ah:Math.round(U*2.5);
-  const bedsPerUnit=Math.max(0,Math.round((acRooms-U)/U));             // AC rooms = living + bedrooms
-  const baths=bedsPerUnit>=2?2:1;                                        // 1 bath for studio/1BR, 2 for 2BR+
+  const tu=typicalUnit(m); const U=tu.U, unitSF=tu.unitSF, bedsPerUnit=tu.beds, baths=tu.baths;
   const bedSF=Math.min(160,Math.max(100,unitSF*0.14)), livSF=Math.max(160,unitSF*0.30);
   const wallRecs=sf=>Math.max(2,Math.ceil(4*Math.sqrt(sf)*0.8/12)+1);   // 80% usable wall, 6-ft rule
   const counterLF=Math.round(Math.max(8,Math.min(16,unitSF/70)));
@@ -2124,4 +2131,109 @@ function renderElectrical(){
   ${e.panels.map(p=>`<tr><td>${esc2(p.p)}</td><td class="num"><strong>${p.qty}</strong></td><td>${esc2(p.spec)}</td></tr>`).join('')}</tbody></table>
 
   <p class="hint" style="margin-top:1rem">Receptacle and circuit rules follow the NEC articles adopted by the NYC Electrical Code (210.52 spacing, 210.11 required circuits, 210.8 GFCI, 210.12 AFCI, 220.12 lighting load). This is an estimating breakdown, not a stamped electrical design — the engineer of record's load calculation and panel schedules govern. Pricing stays on the Electrical line of the estimate.</p>`;
+}
+
+/* ============ PLUMBING BREAKDOWN (NYC Plumbing Code — IPC-based with NYC amendments) ============ */
+// Rules used:
+//  • Table 403.1: each dwelling unit — water closet, lavatory, bathtub/shower, kitchen sink
+//  • Table 709.1 drainage fixture units (DFU): bathroom group (1.6 gpf) 5, kitchen sink 2, dishwasher 2, clothes washer 3
+//  • Table 710.1(1)/(2): building drain & stack sizing by DFU (min 3" where water closets connect)
+//  • Appendix E water-supply fixture units (WSFU, flush tank): bath group 3.6, kitchen sink 1.4, dishwasher 1.4, washer 1.4
+//  • NYC-specific: house (building) trap with fresh-air inlet; RPZ backflow at the service
+function typicalUnit(m){
+  const U=Math.max(1,Math.round(m.units||0)), nsf=m.nsf>0?m.nsf:(m.gfa||0)*0.8, unitSF=nsf/U;
+  const acRooms=m.ah>0?m.ah:Math.round(U*2.5);
+  const beds=Math.max(0,Math.round((acRooms-U)/U));
+  return {U,unitSF,beds,baths:beds>=2?2:1};
+}
+function plumbingBreakdown(){
+  const m=(lastTotals&&lastTotals.m)||metrics(); const t=typicalUnit(m); const U=t.U, B=t.baths, wd=elecWD;
+  const fixtures=[
+    {f:'Water closet (1.28 gpf, tank)',qty:B,dfu:0,wsfu:0,where:'Each bathroom'},
+    {f:'Lavatory',qty:B,dfu:0,wsfu:0,where:'Each bathroom'},
+    {f:'Bathtub / shower (pressure-balance valve)',qty:B,dfu:0,wsfu:0,where:'Each bathroom'},
+    {f:'Kitchen sink',qty:1,dfu:2,wsfu:1.4,where:'Kitchen'},
+    {f:'Dishwasher connection',qty:1,dfu:2,wsfu:1.4,where:'Kitchen'},
+    {f:'Refrigerator ice-maker box',qty:1,dfu:0,wsfu:0,where:'Kitchen'},
+    ...(wd?[{f:'Clothes-washer box',qty:1,dfu:3,wsfu:1.4,where:'Laundry'}]:[]),
+  ];
+  const dfuUnit=B*5+2+2+(wd?3:0), wsfuUnit=B*3.6+1.4+1.4+(wd?1.4:0);
+  const fixUnit=fixtures.reduce((a,x)=>a+x.qty,0);
+  const valves=[
+    {v:'Angle stops — lavatories (H+C)',qty:B*2},
+    {v:'Angle stops — water closets',qty:B},
+    {v:'Angle stops — kitchen sink (H+C)',qty:2},
+    {v:'Dishwasher & ice-maker supply valves',qty:2},
+    ...(wd?[{v:'Washer-box valves (H+C)',qty:2}]:[]),
+    {v:'Tub/shower pressure-balance valves',qty:B},
+    {v:'Unit isolation ball valves (H+C)',qty:2},
+    {v:'Water-hammer arrestors',qty:wd?2:1},
+  ];
+  const valvesUnit=valves.reduce((a,x)=>a+x.qty,0);
+  const F=Math.max(1,Math.round(m.floors||1)), upf=Math.ceil(U/F), cellar=!!m.cellar;
+  const size=(d,tbl)=>{ for(const [lim,s] of tbl) if(d<=lim) return s; return tbl[tbl.length-1][1]+'+'; };
+  const STACK=[[48,'3"'],[240,'4"'],[540,'5"'],[960,'6"']], DRAIN=[[216,'4"'],[480,'5"'],[840,'6"'],[1920,'8"']];
+  const bathStackDFU=F*5, kitStackDFU=F*(4+(wd?3:0));
+  const stacks=[
+    {s:'Bathroom waste & vent stacks',qty:upf*B,size:size(bathStackDFU,STACK),dfu:bathStackDFU},
+    {s:'Kitchen / laundry waste stacks',qty:upf,size:size(kitStackDFU,STACK),dfu:kitStackDFU},
+    {s:'Cold & hot water risers (+ recirc)',qty:upf*3,size:'¾"–1¼"',dfu:null},
+  ];
+  const ventsThruRoof=upf*B+upf;
+  const totDFU=dfuUnit*U+(cellar?6:3), totWSFU=wsfuUnit*U+5;
+  // Hunter's curve (flush tank) — approximate peak demand
+  const H=[[0,0],[10,8],[20,14],[50,29],[100,43],[200,65],[400,105],[800,170],[1500,270],[3000,450]];
+  let gpm=0; for(let i=1;i<H.length;i++){ if(totWSFU<=H[i][0]){ const [a,ga]=H[i-1],[b,gb]=H[i]; gpm=ga+(gb-ga)*(totWSFU-a)/(b-a); break; } gpm=H[H.length-1][1]; }
+  const svc=gpm<=20?'1"':gpm<=35?'1¼"':gpm<=45?'1½"':gpm<=80?'2"':gpm<=120?'2½"':gpm<=180?'3"':'4"';
+  const roofDrains=Math.max(2,Math.ceil((m.footprint||2000)/2000));
+  const common=[
+    {c:'Building drain',qty:1,spec:`${size(totDFU,DRAIN)} at ¼"/ft — ${Math.round(totDFU)} DFU`},
+    {c:'House trap + fresh-air inlet (NYC)',qty:1,spec:'Full-size of building drain'},
+    {c:'Domestic water service & meter',qty:1,spec:`≈${Math.round(gpm)} gpm peak (${Math.round(totWSFU)} WSFU) → ~${svc} service`},
+    {c:'RPZ backflow preventer',qty:1,spec:`${svc}, DEP-approved`},
+    {c:'Central DHW heat-pump system',qty:1,spec:`≈${Math.round(U*25/10)*10} gal storage (≈25 gal/unit) + recirculation`},
+    ...(F>5?[{c:'Domestic water booster pump',qty:1,spec:'Duplex, VFD — street pressure serves ≈5–6 stories'}]:[]),
+    ...(cellar?[{c:'Sewage ejector pit & duplex pumps',qty:1,spec:'For cellar fixtures below the sewer'}]:[]),
+    {c:'Roof drains',qty:roofDrains,spec:'≈1 per 2,000 SF of roof + overflow/scuppers'},
+    {c:'Floor drains (cellar, trash, mech)',qty:cellar?3:1,spec:'With trap primers'},
+    {c:'Mop / service sink',qty:1,spec:'Cellar or ground-floor janitor closet'},
+    {c:'Hose bibbs (roof, exterior, cellar)',qty:cellar?3:2,spec:'Frost-proof, vacuum breaker'},
+    {c:'Vents through roof',qty:ventsThruRoof,spec:'1 per stack, 3"–4"'},
+  ];
+  return {m,U,t,fixtures,fixUnit,dfuUnit,wsfuUnit,valves,valvesUnit,upf,F,stacks,common,totDFU,totWSFU,gpm,svc,
+    totals:{fixtures:fixUnit*U+(1+(cellar?3:2)),valves:valvesUnit*U,stacks:upf*B+upf,dfu:Math.round(totDFU)}};
+}
+function openPlumbing(){ renderPlumbing(); hide('step-3'); show('step-7'); window.scrollTo(0,0); track('plumbing_opened'); }
+function backFromPlumbing(){ hide('step-7'); show('step-3'); }
+function renderPlumbing(){
+  const p=plumbingBreakdown(), n=v=>Math.round(v).toLocaleString(); const el=document.getElementById('plumb'); if(!el) return;
+  el.innerHTML=`
+  <div class="elec-kpis">
+    <div><div class="k">${n(p.totals.fixtures)}</div><div class="l">Fixtures & connections</div></div>
+    <div><div class="k">${n(p.totals.valves)}</div><div class="l">Valves (in units)</div></div>
+    <div><div class="k">${n(p.totals.stacks)}</div><div class="l">Waste stacks</div></div>
+    <div><div class="k">${n(p.totals.dfu)}</div><div class="l">Drainage fixture units</div></div>
+  </div>
+  <p class="hint">Based on ${p.U} units on ${p.F} floor(s) (≈${p.upf} per floor) · typical unit ${p.t.beds} bedroom(s), ${p.t.baths} bath(s). Stacks assume bathrooms and kitchens line up floor to floor.</p>
+  <label class="hint" style="display:inline-flex;gap:6px;align-items:center;margin:.3rem 0 .2rem"><input type="checkbox" ${elecWD?'checked':''} onchange="elecWD=this.checked;renderPlumbing()"> In-unit washer/dryer</label>
+
+  <h3>Fixtures per unit</h3>
+  <table><thead><tr><th>Fixture</th><th>Where</th><th class="num">Per unit</th><th class="num">Building</th></tr></thead><tbody>
+  ${p.fixtures.map(x=>`<tr><td>${esc2(x.f)}</td><td class="basis">${esc2(x.where)}</td><td class="num"><strong>${x.qty}</strong></td><td class="num">${n(x.qty*p.U)}</td></tr>`).join('')}
+  <tr class="subtot"><td colspan="2">Per unit: ${p.fixUnit} fixtures · ${p.dfuUnit} DFU · ${p.wsfuUnit.toFixed(1)} WSFU</td><td class="num">${p.fixUnit}</td><td class="num">${n(p.fixUnit*p.U)}</td></tr></tbody></table>
+
+  <h3>Valves & shut-offs per unit</h3>
+  <table><thead><tr><th>Valve</th><th class="num">Per unit</th><th class="num">Building</th></tr></thead><tbody>
+  ${p.valves.map(x=>`<tr><td>${esc2(x.v)}</td><td class="num"><strong>${x.qty}</strong></td><td class="num">${n(x.qty*p.U)}</td></tr>`).join('')}
+  <tr class="subtot"><td>Per unit</td><td class="num">${p.valvesUnit}</td><td class="num">${n(p.valvesUnit*p.U)}</td></tr></tbody></table>
+
+  <h3>Risers & stacks</h3>
+  <table><thead><tr><th>Riser / stack</th><th class="num">Qty</th><th class="num">Size</th><th class="num">DFU each</th></tr></thead><tbody>
+  ${p.stacks.map(x=>`<tr><td>${esc2(x.s)}</td><td class="num"><strong>${x.qty}</strong></td><td class="num">${x.size}</td><td class="num">${x.dfu==null?'—':x.dfu}</td></tr>`).join('')}</tbody></table>
+
+  <h3>Building services & common fixtures</h3>
+  <table><thead><tr><th>Item</th><th class="num">Qty</th><th>Spec</th></tr></thead><tbody>
+  ${p.common.map(x=>`<tr><td>${esc2(x.c)}</td><td class="num"><strong>${x.qty}</strong></td><td>${esc2(x.spec)}</td></tr>`).join('')}</tbody></table>
+
+  <p class="hint" style="margin-top:1rem">Fixture counts, fixture units and pipe sizes follow the NYC Plumbing Code (IPC-based: Table 403.1 fixtures, 709.1 DFU, 710.1 drain & stack sizing, Appendix E water sizing) plus NYC-specific items like the house trap. Water-service size and heater storage are approximate. This is an estimating breakdown, not a stamped plumbing design — the engineer of record's riser diagrams govern. Pricing stays on the Plumbing line of the estimate.</p>`;
 }

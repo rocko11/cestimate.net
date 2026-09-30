@@ -247,6 +247,7 @@
     <button class="btn btn-primary" onclick="buildProposal()">📄 Client proposal</button>
     <button class="btn" onclick="openSpecs()">📋 Materials &amp; specs</button>
     <button class="btn" onclick="openElectrical()">⚡ Electrical breakdown</button>
+    <button class="btn" onclick="openPlumbing()">🚿 Plumbing breakdown</button>
     <button class="btn" onclick="saveTemplate()">💾 Save estimate</button>
     <button class="btn" onclick="resetEstimate()">↺ Reset edits</button>
     <button class="btn" onclick="window.print()">🖨 Print</button>
@@ -382,6 +383,17 @@
   <div id="proposal" class="proposal"></div>
 </div>
 
+<div id="step-7" class="hidden">
+  <div class="actions no-print" style="margin-bottom:1rem">
+    <button class="btn" onclick="backFromPlumbing()">← Back to estimate</button>
+    <button class="btn btn-green" onclick="window.print()">🖨 Print / Save as PDF</button>
+  </div>
+  <div class="proposal">
+    <h2 style="margin-bottom:.25rem">Plumbing breakdown</h2>
+    <div id="plumb"></div>
+  </div>
+</div>
+
 <div id="step-6" class="hidden">
   <div class="actions no-print" style="margin-bottom:1rem">
     <button class="btn" onclick="backFromElectrical()">← Back to estimate</button>
@@ -413,7 +425,7 @@ window.addEventListener('error',function(e){
   if(el){ el.textContent='Script error: '+(e.message||'unknown')+'  — please report this.'; el.classList.remove('hidden'); }
 });
 </script>
-<script src="app.js?v=20260930-elec"></script>
+<script src="app.js?v=20260930-plumb"></script>
 
 <!-- 3D RENDERING MODAL -->
 <div id="rendering-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,20,38,.93);overflow:auto;">
