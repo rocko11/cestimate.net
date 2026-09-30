@@ -264,3 +264,10 @@ td .rm:hover{color:var(--red)}
 .spec-desc{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.4}
 .spec-qty{font-size:12px;margin-top:6px}
 @media print{.spec-grid{grid-template-columns:repeat(3,1fr)}}
+/* electrical breakdown */
+.elec-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:.75rem 0}
+.elec-kpis>div{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--paper)}
+.elec-kpis .k{font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:600;color:var(--ink)}
+.elec-kpis .l{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:2px}
+#elec table{margin-top:.4rem}
+@media (max-width:640px){.elec-kpis{grid-template-columns:repeat(2,1fr)}}

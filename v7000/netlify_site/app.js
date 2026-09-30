@@ -1294,6 +1294,20 @@ async function exportExcelCore(ruleRows){
   specRows().forEach(r=>{ const sp=specFor(r.name); specAOA.push([r.div,r.name,sp.mat,sp.desc,Math.round((+r.qty||0)*10)/10,r.unit]); });
   const wsS=XLSX.utils.aoa_to_sheet(specAOA); wsS['!cols']=[{wch:30},{wch:42},{wch:60},{wch:60},{wch:10},{wch:6}];
   XLSX.utils.book_append_sheet(wb,wsS,'Materials & Specs');
+  try{
+    const e=electricalBreakdown();
+    const ea=[['ELECTRICAL BREAKDOWN (NEC rules adopted by NYC Electrical Code)'],[],
+      ['Totals','Qty'],['Receptacles (outlets)',e.totals.recs],['GFCI protected',e.totals.gfci],['Breakers (circuits)',e.totals.breakers],['Panels / switchboards',e.totals.panels],[],
+      ['OUTLETS PER ROOM — typical unit','Rooms','Outlets each','Total','Type','Rule']];
+    e.rooms.forEach(r=>ea.push([r.room+(r.sf?' (≈'+Math.round(r.sf)+' SF)':''),r.n,r.recs,r.n*r.recs,r.type,r.note]));
+    ea.push(['Per unit','','',e.recsPerUnit,'× '+e.U+' units',''],[],['CIRCUITS — per unit panel','Breaker (A)','Poles','Qty','Protection']);
+    e.circuits.forEach(x=>ea.push([x.c,x.amp,x.poles,x.qty,x.prot]));
+    ea.push(['Per unit breakers','','',e.brkUnit,e.panelSpaces+'-space '+e.unitAmps+'A panel'],[],['COMMON AREAS — house panel','Breaker (A)','Poles','Qty']);
+    e.house.forEach(x=>ea.push([x.c,x.amp,x.poles,x.qty]));
+    ea.push([],['PANELS','Qty','Spec']); e.panels.forEach(p=>ea.push([p.p,p.qty,p.spec]));
+    const wsE=XLSX.utils.aoa_to_sheet(ea); wsE['!cols']=[{wch:44},{wch:12},{wch:12},{wch:10},{wch:34},{wch:30}];
+    XLSX.utils.book_append_sheet(wb,wsE,'Electrical Breakdown');
+  }catch(err){ console.warn('electrical sheet',err); }
   if(exportMode==='market'&&ruleRows){
     const byName={}; ruleRows.forEach(r=>{ byName[r.div+'|'+r.name]=r; });
     const cmp=[['OUR ESTIMATE vs CURRENT MARKET'],[],['Division','Item','Our unit price','Market unit price','Our total','Market total','Difference']];
@@ -1997,4 +2011,117 @@ function shrinkImage(src,max){
     const c=document.createElement('canvas'); c.width=Math.round(img.width*sc); c.height=Math.round(img.height*sc);
     c.getContext('2d').drawImage(img,0,0,c.width,c.height); res(c.toDataURL('image/jpeg',0.82)); };
     img.onerror=()=>res(src); img.src=src; });
+}
+
+/* ============ ELECTRICAL BREAKDOWN (NEC-based rules adopted by the NYC Electrical Code) ============ */
+// Sizes the electrical job from building metrics: receptacles per room, circuits
+// and breakers per dwelling unit, common/house circuits, and panel count.
+// Rules used (NEC Art. 210/220 as adopted in NYC):
+//  • 210.52(A): no point along a usable wall > 6 ft from a receptacle → ~1 per 12 ft of wall
+//  • 210.52(C): countertops — no point > 24" from a receptacle → 1 per 4 ft of counter
+//  • 210.11(C): 2 × 20A kitchen small-appliance circuits, 1 × 20A bathroom circuit, 20A laundry circuit
+//  • 210.8 GFCI: kitchen countertop, bath, laundry · 210.12 AFCI: dwelling-unit living/bed rooms
+//  • 220.12: general lighting 3 VA/SF
+// New NYC buildings ≤ 7 stories are all-electric (Local Law 154) → electric range & heat pumps.
+let elecWD=true;
+function electricalBreakdown(){
+  const m=(lastTotals&&lastTotals.m)||metrics();
+  const U=Math.max(1,Math.round(m.units||0)), nsf=m.nsf>0?m.nsf:(m.gfa||0)*0.8;
+  const unitSF=nsf/U;
+  const acRooms=m.ah>0?m.ah:Math.round(U*2.5);
+  const bedsPerUnit=Math.max(0,Math.round((acRooms-U)/U));             // AC rooms = living + bedrooms
+  const baths=bedsPerUnit>=2?2:1;                                        // 1 bath for studio/1BR, 2 for 2BR+
+  const bedSF=Math.min(160,Math.max(100,unitSF*0.14)), livSF=Math.max(160,unitSF*0.30);
+  const wallRecs=sf=>Math.max(2,Math.ceil(4*Math.sqrt(sf)*0.8/12)+1);   // 80% usable wall, 6-ft rule
+  const counterLF=Math.round(Math.max(8,Math.min(16,unitSF/70)));
+  const rooms=[
+    {room:'Living / dining',n:1,sf:livSF,recs:wallRecs(livSF),type:'Duplex 15A, AFCI',note:'6-ft rule on every usable wall'},
+    ...(bedsPerUnit?[{room:'Bedroom',n:bedsPerUnit,sf:bedSF,recs:wallRecs(bedSF),type:'Duplex 15A, AFCI',note:'6-ft rule'}]:[]),
+    {room:'Kitchen — countertop',n:1,sf:null,recs:Math.ceil(counterLF/4),type:'Duplex 20A, GFCI',note:`≈${counterLF} LF counter, 1 per 4 ft`},
+    {room:'Kitchen — appliances',n:1,sf:null,recs:3,type:'Dedicated: fridge, dishwasher, microwave/hood',note:'Range hard-wired/50A receptacle'},
+    {room:'Bathroom',n:baths,sf:null,recs:1,type:'Duplex 20A, GFCI',note:'Within 3 ft of basin'},
+    {room:'Foyer / hall',n:1,sf:null,recs:1,type:'Duplex 15A, AFCI',note:'Halls ≥ 10 ft need one'},
+    ...(elecWD?[{room:'Laundry (in-unit W/D)',n:1,sf:null,recs:2,type:'Washer 20A GFCI + dryer 30A',note:'Dedicated circuits'}]:[]),
+  ];
+  const recsPerUnit=rooms.reduce((a,r)=>a+r.n*r.recs,0);
+  const gfciPerUnit=rooms.filter(r=>/GFCI/.test(r.type)).reduce((a,r)=>a+r.n*(/Laundry/.test(r.room)?1:r.recs),0);
+  const condPerUnit=Math.max(1,Math.round((m.cu>0?m.cu:U)/U));
+  const circuits=[
+    {c:'General lighting (3 VA/SF)',amp:15,poles:1,qty:Math.max(1,Math.ceil(unitSF*3/1440)),prot:'AFCI'},
+    {c:'Living/dining receptacles',amp:20,poles:1,qty:1,prot:'AFCI'},
+    ...(bedsPerUnit?[{c:'Bedroom receptacles',amp:20,poles:1,qty:bedsPerUnit,prot:'AFCI'}]:[]),
+    {c:'Kitchen small-appliance',amp:20,poles:1,qty:2,prot:'GFCI/AFCI'},
+    {c:'Refrigerator',amp:20,poles:1,qty:1,prot:'—'},
+    {c:'Dishwasher',amp:20,poles:1,qty:1,prot:'GFCI'},
+    {c:'Microwave / range hood',amp:20,poles:1,qty:1,prot:'AFCI'},
+    {c:'Electric range / induction',amp:50,poles:2,qty:1,prot:'—'},
+    {c:'Bathroom receptacles',amp:20,poles:1,qty:baths,prot:'GFCI'},
+    ...(elecWD?[{c:'Washer',amp:20,poles:1,qty:1,prot:'GFCI'},{c:'Dryer (heat-pump/electric)',amp:30,poles:2,qty:1,prot:'—'}]:[]),
+    {c:'Heat-pump condenser (mini-split)',amp:30,poles:2,qty:condPerUnit,prot:'—'},
+    {c:'Smoke/CO detectors (interconnected)',amp:15,poles:1,qty:0,prot:'On lighting circuit'},
+  ];
+  const brkUnit=circuits.reduce((a,c)=>a+c.qty,0), spacesUnit=circuits.reduce((a,c)=>a+c.qty*c.poles,0);
+  const panelSpaces=[20,24,30,40,42].find(s=>s>=Math.ceil(spacesUnit*1.2))||42;
+  const unitAmps=(elecWD||condPerUnit>1)?125:100;
+  const F=Math.max(1,Math.round(m.floors||1)), cellar=!!m.cellar, elev=Math.round(m.elev||0);
+  const house=[
+    {c:'Corridor & stair lighting',amp:20,poles:1,qty:F*2+(cellar?2:0)},
+    {c:'Corridor receptacles (cleaning)',amp:20,poles:1,qty:F},
+    {c:'Cellar / mechanical rooms',amp:20,poles:1,qty:cellar?3:1},
+    {c:'Roof service receptacle (near HVAC)',amp:20,poles:1,qty:1},
+    {c:'Exterior & entrance lighting',amp:20,poles:1,qty:1},
+    {c:'Fire alarm control panel',amp:20,poles:1,qty:1},
+    {c:'Intercom / entry / low-voltage',amp:20,poles:1,qty:1},
+    {c:'Central DHW heat pump',amp:40,poles:2,qty:1},
+    ...(cellar?[{c:'Sump / sewage ejector pump',amp:20,poles:2,qty:1}]:[]),
+    ...(elev?[{c:'Elevator machine (3-phase)',amp:60,poles:3,qty:elev},{c:'Elevator cab lighting',amp:20,poles:1,qty:elev}]:[]),
+  ];
+  const brkHouse=house.reduce((a,c)=>a+c.qty,0), spacesHouse=house.reduce((a,c)=>a+c.qty*c.poles,0);
+  const housePanels=Math.max(1,Math.ceil(spacesHouse*1.2/42));
+  const houseRecs=F+(cellar?2:1)+1;
+  const panels=[
+    {p:'Dwelling-unit load centers',qty:U,spec:`${unitAmps}A, ${panelSpaces}-space, 120/240V (or 120/208V)`},
+    {p:'House (common-area) panels',qty:housePanels,spec:'225A, 42-space'},
+    {p:'Meter bank / main switchboard',qty:1,spec:`${U+1} meters (1 per unit + house)`},
+    ...(elev?[{p:'Elevator disconnect',qty:elev,spec:'Fused, 3-phase, per elevator'}]:[]),
+  ];
+  return {m,U,unitSF,bedsPerUnit,baths,rooms,recsPerUnit,gfciPerUnit,circuits,brkUnit,spacesUnit,panelSpaces,unitAmps,house,brkHouse,spacesHouse,houseRecs,panels,
+    totals:{recs:recsPerUnit*U+houseRecs,gfci:gfciPerUnit*U,breakers:brkUnit*U+brkHouse,panels:panels.reduce((a,p)=>a+p.qty,0),
+      afciBrk:circuits.filter(c=>/AFCI/.test(c.prot)).reduce((a,c)=>a+c.qty,0)*U}};
+}
+function openElectrical(){ renderElectrical(); hide('step-3'); show('step-6'); window.scrollTo(0,0); track('electrical_opened'); }
+function backFromElectrical(){ hide('step-6'); show('step-3'); }
+function renderElectrical(){
+  const e=electricalBreakdown(), n=v=>Math.round(v).toLocaleString(); const el=document.getElementById('elec'); if(!el) return;
+  const tot=e.totals;
+  el.innerHTML=`
+  <div class="elec-kpis">
+    <div><div class="k">${n(tot.recs)}</div><div class="l">Receptacles (outlets)</div></div>
+    <div><div class="k">${n(tot.gfci)}</div><div class="l">GFCI protected</div></div>
+    <div><div class="k">${n(tot.breakers)}</div><div class="l">Breakers (circuits)</div></div>
+    <div><div class="k">${n(tot.panels)}</div><div class="l">Panels / switchboards</div></div>
+  </div>
+  <p class="hint">Based on ${e.U} units · typical unit ≈ ${n(e.unitSF)} SF net · ${e.bedsPerUnit} bedroom(s) · ${e.baths} bath(s). Room sizes are typical for that unit size — plan-specific layouts will vary.</p>
+  <label class="hint" style="display:inline-flex;gap:6px;align-items:center;margin:.3rem 0 .2rem"><input type="checkbox" ${elecWD?'checked':''} onchange="elecWD=this.checked;renderElectrical()"> In-unit washer/dryer</label>
+
+  <h3>Outlets per room — typical unit</h3>
+  <table><thead><tr><th>Room</th><th class="num">Rooms</th><th class="num">Outlets each</th><th class="num">Total</th><th>Type</th><th>Rule</th></tr></thead><tbody>
+  ${e.rooms.map(r=>`<tr><td>${esc2(r.room)}${r.sf?` <span class="basis">≈${n(r.sf)} SF</span>`:''}</td><td class="num">${r.n}</td><td class="num">${r.recs}</td><td class="num"><strong>${r.n*r.recs}</strong></td><td>${esc2(r.type)}</td><td class="basis">${esc2(r.note)}</td></tr>`).join('')}
+  <tr class="subtot"><td colspan="3">Per unit</td><td class="num">${e.recsPerUnit}</td><td colspan="2">× ${e.U} units = ${n(e.recsPerUnit*e.U)} · + ${e.houseRecs} common-area</td></tr></tbody></table>
+
+  <h3>Circuits & breakers — per unit panel</h3>
+  <table><thead><tr><th>Circuit</th><th class="num">Breaker</th><th class="num">Poles</th><th class="num">Qty</th><th>Protection</th></tr></thead><tbody>
+  ${e.circuits.map(c=>`<tr><td>${esc2(c.c)}</td><td class="num">${c.amp}A</td><td class="num">${c.poles}</td><td class="num"><strong>${c.qty}</strong></td><td>${esc2(c.prot)}</td></tr>`).join('')}
+  <tr class="subtot"><td colspan="3">Per unit: ${e.brkUnit} breakers · ${e.spacesUnit} spaces → ${e.panelSpaces}-space, ${e.unitAmps}A panel</td><td class="num">${e.brkUnit}</td><td>× ${e.U} = ${n(e.brkUnit*e.U)}</td></tr></tbody></table>
+
+  <h3>Common areas — house panel</h3>
+  <table><thead><tr><th>Circuit</th><th class="num">Breaker</th><th class="num">Poles</th><th class="num">Qty</th></tr></thead><tbody>
+  ${e.house.map(c=>`<tr><td>${esc2(c.c)}</td><td class="num">${c.amp}A</td><td class="num">${c.poles}</td><td class="num"><strong>${c.qty}</strong></td></tr>`).join('')}
+  <tr class="subtot"><td colspan="3">House: ${e.brkHouse} breakers · ${e.spacesHouse} spaces</td><td class="num">${e.brkHouse}</td></tr></tbody></table>
+
+  <h3>Panels & distribution</h3>
+  <table><thead><tr><th>Equipment</th><th class="num">Qty</th><th>Spec</th></tr></thead><tbody>
+  ${e.panels.map(p=>`<tr><td>${esc2(p.p)}</td><td class="num"><strong>${p.qty}</strong></td><td>${esc2(p.spec)}</td></tr>`).join('')}</tbody></table>
+
+  <p class="hint" style="margin-top:1rem">Receptacle and circuit rules follow the NEC articles adopted by the NYC Electrical Code (210.52 spacing, 210.11 required circuits, 210.8 GFCI, 210.12 AFCI, 220.12 lighting load). This is an estimating breakdown, not a stamped electrical design — the engineer of record's load calculation and panel schedules govern. Pricing stays on the Electrical line of the estimate.</p>`;
 }
