@@ -60,6 +60,12 @@
     });
     recs.forEach(function (r) {
       var n = Math.max(1, +r.floors || 1), lf = 0;
+      if (r.cad) {
+        var anyc = 0;
+        TYPES.forEach(function (t) { var v = Math.max(0, +(r.lf && r.lf[t.key]) || 0); by[t.key] += v * n; anyc += v; });
+        if (anyc > 0) floorsMeasured += n;
+        return;
+      }
       if (r.ai) {
         if (hand[String(r.key).replace(/^ai:/, '')]) return;
         var any = 0;

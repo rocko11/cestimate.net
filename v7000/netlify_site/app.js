@@ -2327,4 +2327,5 @@ function renderPlumbing(){
 }
 
 /* Wall-measuring tool (walls.js). Optional: if the file is missing the app falls back to the factor. */
+loadScript('dxf.js').catch(function(e){ console.warn('dxf.js not loaded', e); });
 loadScript('walls.js').catch(function(e){ console.warn('walls.js not loaded — wall measuring unavailable', e); });
