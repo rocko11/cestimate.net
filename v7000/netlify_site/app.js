@@ -233,13 +233,15 @@ async function pool(items,n,fn){
 
 // Convert a file to downscaled images, batch under the size budget, extract each.
 // Returns an array of parsed objects (merged later across all files).
-// Only send pages likely to hold numbers we need: cover/zoning, schedules, proposed floor plans.
+// Skip only sheets that clearly carry no quantities we need (elevations, sections, details,
+// ceiling plans, demolition, roof, structural/MEP drawings). Anything mentioning a schedule,
+// door/window/HVAC, zoning or area is ALWAYS read; so are the first 3 pages and unreadable pages.
 function pageRelevant(page,i){
-  const txt=((page&&typeof page==='object'&&page.text)||'').toUpperCase();
-  if(i<2||txt.length<60) return true;                       // cover sheets / scanned pages: always read
-  if(/GROSS FLOOR AREA|ZONING|FLOOR AREA|LOT AREA|DOOR SCHEDULE|WINDOW SCHEDULE|FINISH SCHEDULE|HVAC|MECHANICAL SCHEDULE|AC UNIT|CONDENS|EXHAUST|SOE|UNDERPIN|PILE/.test(txt)&&!/ELEVATION|DETAIL/.test(txt.slice(-600))) return true;
-  if(/(PROPOSED|CELLAR|NEW|[0-9](ST|ND|RD|TH))\s+[A-Z0-9 \-&]{0,30}(FLOOR )?PLAN/.test(txt)&&!/(DEMOLITION|CEILING|ROOF|ELEVATION|SECTION|DETAIL|FRAMING|FOUNDATION|PLUMBING|ELECTRICAL|SPRINKLER)[ A-Z\-]{0,12}PLAN/.test(txt)) return true;
-  return false;
+  const txt=((page&&typeof page==='object'&&page.text)||'').toUpperCase().replace(/\s+/g,' ');
+  if(i<3||txt.length<60) return true;
+  if(/SCHEDULE|DOOR|WINDOW|HVAC|MECHANICAL|CONDENS|EXHAUST|FLOOR AREA|ZONING|LOT AREA|SOE|UNDERPIN|PILE|UNIT|APARTMENT|GENERAL NOTES|ENERGY|FENESTRATION|LEGEND/.test(txt)&&!/ELEVATION|REFLECTED CEILING|DEMOLITION/.test(txt.slice(0,3000)+txt.slice(-600))) return true;
+  if(/(ELEVATIONS?|SECTIONS?|DETAILS?|REFLECTED CEILING|DEMOLITION|ROOF PLAN|FOUNDATION PLAN|FRAMING PLAN|STRUCTURAL|PLUMBING|SPRINKLER|ELECTRICAL|SITE PLAN|FIRE ALARM)/.test(txt)) return false;
+  return true;
 }
 async function extractFromImages(pages,onProg){
   const parsed=[]; const errs=[]; let done=0;
@@ -259,7 +261,17 @@ async function extractFromImages(pages,onProg){
     if(t!==null){ const j=parseJSON(t); if(j){ j._page=i; return j; } }
     return null;
   });
+  // second, gentle pass (one at a time) for relevant pages that failed under load
+  for(let i=0;i<pages.length;i++){
+    if(!keep[i]||res[i]) continue;
+    const page=pages[i]; const imgB64=(typeof page==='string')?page:(page&&page.img)||page;
+    const rawText=(page&&typeof page==='object'&&page.text)||'';
+    try{ const t=await callExtractor([{media_type:'image/jpeg',data:imgB64}],rawText); const j=parseJSON(t); if(j){ j._page=i; res[i]=j; } }catch(e){ errs.push((e&&e.message)||String(e)); }
+  }
   res.forEach(j=>{ if(j) parsed.push(j); });
+  const failed=pages.filter((p,i)=>keep[i]&&!res[i]).length;
+  window._scanInfo={total:pages.length,scanned:total,failed};
+  if(failed) console.warn('pages that could not be read:',failed);
   if(!parsed.length&&errs.length) throw new Error(errs[0]);
   return parsed;
 }
