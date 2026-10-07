@@ -59,6 +59,38 @@
     return { layers: layers, blocks: blocks, insunits: insunits, ftPerUnit: UNIT_FT[insunits] || UNIT_FT[0] };
   }
 
+  /* DWG: read with the open-source LibreDWG (WebAssembly, runs in the browser, nothing is uploaded). */
+  function fromDb(db) {
+    var layers = {}, blocks = {};
+    function lay(n) { return layers[n] || (layers[n] = { name: n, units: 0, ents: 0 }); }
+    function add(layer, len) { if (!isFinite(len)) return; var l = lay(layer || '0'); l.units += len; l.ents++; }
+    (db.entities || []).forEach(function (e) {
+      var ly = e.layer || '0';
+      if (e.type === 'LINE' && e.startPoint && e.endPoint) add(ly, Math.hypot(e.endPoint.x - e.startPoint.x, e.endPoint.y - e.startPoint.y));
+      else if ((e.type === 'LWPOLYLINE' || e.type === 'POLYLINE' || e.type === 'POLYLINE2D') && e.vertices && e.vertices.length > 1) {
+        var v = e.vertices, len = 0, k;
+        for (k = 1; k < v.length; k++) len += Math.hypot(v[k].x - v[k - 1].x, v[k].y - v[k - 1].y);
+        if ((e.flag & 1) === 1 && v.length > 2) len += Math.hypot(v[0].x - v[v.length - 1].x, v[0].y - v[v.length - 1].y);
+        add(ly, len);
+      } else if (e.type === 'INSERT' && e.name) {
+        var key = ly + '\u0001' + e.name; blocks[key] = blocks[key] || { layer: ly, block: e.name, count: 0 }; blocks[key].count++; lay(ly);
+      }
+    });
+    var iu = (db.header && +db.header.INSUNITS) || 0;
+    return { layers: layers, blocks: blocks, insunits: iu, ftPerUnit: UNIT_FT[iu] || UNIT_FT[0] };
+  }
+  var _dwgLib = null;
+  async function parseDwg(buf) {
+    if (!_dwgLib) {
+      var mod = await import('./vendor/libredwg/dist/libredwg-web.js');
+      _dwgLib = await mod.LibreDwg.create('vendor/libredwg/wasm');
+      _dwgLib._ft = mod.Dwg_File_Type;
+    }
+    var data = _dwgLib.dwg_read_data(buf, _dwgLib._ft.DWG);
+    if (!data) throw new Error('this DWG version could not be read');
+    return fromDb(_dwgLib.convert(data));
+  }
+
   function guessLayer(name) {
     var u = name.toUpperCase();
     if (/DEMO|EXIST|E-WALL|\bEX\b|HIDDEN|DIM|TEXT|ANNO|GRID|FURN|HATCH|TITLE|VIEWPORT|DEFPOINTS/.test(u)) return 'ignore';
@@ -78,7 +110,7 @@
     return 'ignore';
   }
 
-  root.DxfCore = { parse: parse, guessLayer: guessLayer, guessBlock: guessBlock, UNIT_FT: UNIT_FT };
+  root.DxfCore = { parse: parse, fromDb: fromDb, guessLayer: guessLayer, guessBlock: guessBlock, UNIT_FT: UNIT_FT };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.DxfCore;
   if (typeof document === 'undefined') return;
 
@@ -95,15 +127,26 @@
     st.textContent = '#dxf-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;align-items:center;justify-content:center}#dxf-modal.open{display:flex}#dxf-box{background:#fff;border-radius:10px;width:min(900px,95vw);max-height:90vh;overflow:auto;padding:16px;font-size:13px}#dxf-box table{width:100%;border-collapse:collapse;margin:8px 0}#dxf-box th,#dxf-box td{border-bottom:1px solid #e3e7ee;padding:4px 6px;text-align:left}#dxf-box .p{background:#1a3a6b;color:#fff;border:0;border-radius:6px;padding:7px 14px;font-weight:600;cursor:pointer}';
     document.head.appendChild(st);
     box = document.createElement('div'); box.id = 'dxf-modal';
-    box.innerHTML = '<div id="dxf-box"><div style="display:flex;gap:10px;align-items:center"><strong>📁 Import CAD (DXF)</strong><input type="file" id="dxf-file" accept=".dxf"><span style="flex:1"></span><button id="dxf-close">Close</button></div><div id="dxf-body" style="margin-top:8px">Choose a .dxf file. (In AutoCAD: Save As → DXF. DWG files must be exported to DXF first.)</div></div>';
+    box.innerHTML = '<div id="dxf-box"><div style="display:flex;gap:10px;align-items:center"><strong>📁 Import CAD (DWG / DXF)</strong><input type="file" id="dxf-file" accept=".dxf,.dwg"><span style="flex:1"></span><button id="dxf-close">Close</button></div><div id="dxf-body" style="margin-top:8px">Choose a .dxf or .dwg file. DWG files are read directly in your browser (nothing is uploaded).</div></div>';
     document.body.appendChild(box);
     $('dxf-close').onclick = function () { box.classList.remove('open'); };
-    $('dxf-file').onchange = function () {
-      var f = this.files[0]; if (!f) return;
+    $('dxf-file').onchange = function () { if (this.files[0]) handleFile(this.files[0]); };
+  }
+  function handleFile(f) {
+    {
+      var isDwg = /\.dwg$/i.test(f.name);
+      $('dxf-body').innerHTML = isDwg ? 'Reading DWG… (first time loads a ~3 MB reader)' : 'Reading…';
       var rd = new FileReader();
-      rd.onload = function () { try { D = { name: f.name, res: parse(String(rd.result)) }; if (!Object.keys(D.res.layers).length) throw new Error('no drawing entities found (is it a binary DXF?)'); render(); } catch (e) { $('dxf-body').innerHTML = '<b style="color:#b00">Could not read that file: ' + esc(e.message || e) + '</b>'; } };
-      rd.readAsText(f);
-    };
+      rd.onload = async function () {
+        try {
+          var res = isDwg ? await parseDwg(rd.result) : parse(String(rd.result));
+          D = { name: f.name, res: res };
+          if (!Object.keys(res.layers).length) throw new Error('no drawing entities found' + (isDwg ? '' : ' (is it a binary DXF?)'));
+          render();
+        } catch (e) { $('dxf-body').innerHTML = '<b style="color:#b00">Could not read that file: ' + esc(e.message || e) + '</b>' + (isDwg ? '<div>If this DWG is very new or unusual, save it as DXF (AutoCAD: Save As → DXF) and try again.</div>' : ''); }
+      };
+      if (isDwg) rd.readAsArrayBuffer(f); else rd.readAsText(f);
+    }
   }
 
   function ftOf(l, units, dbl) { return l.units * units / (dbl ? 2 : 1); }
@@ -169,11 +212,12 @@
   }
 
   function open() { build(); box.classList.add('open'); }
+  root.openCadFile = function (f) { build(); box.classList.add('open'); handleFile(f); };
   function inject() {
     if ($('dxf-btn')) return;
     var a = $('wall-measure-btn') || document.querySelector('button[onclick="addFloorRow()"]');
     if (!a) { setTimeout(inject, 400); return; }
-    var b = document.createElement('button'); b.className = 'btn'; b.id = 'dxf-btn'; b.textContent = '📁 Import CAD (DXF)'; b.onclick = open;
+    var b = document.createElement('button'); b.className = 'btn'; b.id = 'dxf-btn'; b.textContent = '📁 Import CAD (DWG / DXF)'; b.onclick = open;
     a.parentNode.insertBefore(b, a.nextSibling);
   }
   root.openDxf = open;
