@@ -592,6 +592,22 @@
     refreshSummary();
   }
 
+
+  /* Automatic run right after plan analysis: AI-estimate every proposed floor-plan sheet in the background. */
+  async function autoWalls() {
+    var ent = pickEntry(); if (!ent) return;
+    var chip = $('wall-summary'); if (chip) chip.textContent = '🤖 AI is estimating walls from the floor plans…';
+    try {
+      buildModal();
+      await openEntry(ent);
+      var t0 = Date.now();
+      while (Date.now() - t0 < 12000) { if (Object.keys(S.titles).length >= S.pdf.numPages) break; await new Promise(function (r) { setTimeout(r, 300); }); }
+      await runAI(true);
+    } catch (e) { console.warn('auto wall estimate failed', e); }
+    refreshSummary();
+    try { if (typeof recalc === 'function') recalc(); } catch (e) {}
+  }
+  root.autoWalls = autoWalls;
   root.openWalls = openWalls;
   root.refreshWallSummary = refreshSummary;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', injectButton); else injectButton();
