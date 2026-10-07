@@ -682,6 +682,25 @@ function metrics(){
 // PARTFACTOR (LF partition per SF floor) and wall height factor
 const PARTFACTOR=0.30, WALLHT_RATIO=0.83; // residential 0.30 LF partition/SF net; clear wall ht ≈ 0.83 × f2f
 
+/* Framing / sheetrock / paint quantities.
+   If walls were measured on the plans (walls.js → window.wallPlan) those LF are used;
+   floors not yet measured keep the factor so the estimate is never short. */
+function wallQuantities(m,wallht){
+  const factorLF=m.nsf*PARTFACTOR;
+  const est={measured:false, framingLF:factorLF, gwbSF:(factorLF*wallht*2)+m.nsf,
+    basisFrame:'Net area × '+PARTFACTOR.toFixed(2)+' LF/SF (factor estimate — not measured)',
+    basisGwb:'Factor LF × ht × 2 + ceilings (estimate — not measured)'};
+  try{
+    if(window.WallsCore && window.wallPlan){
+      let ft=0; try{ ft=floorRows.length; }catch(e){}
+      if(!ft) ft=(m.floors||1)+(m.cellar?1:0);
+      const q=window.WallsCore.quantities(window.wallPlan,m,wallht,PARTFACTOR,ft);
+      if(q) return q;
+    }
+  }catch(e){ console.warn('wall measurements ignored:',e); }
+  return est;
+}
+
 /* Excavation, SOE, underpinning and piles. New construction always gets
    excavation + auto-defaulted SOE/underpinning; existing buildings (cellar
    lowering, additions) only get the lines the user or the plans set. */
@@ -754,12 +773,13 @@ function buildTakeoff(m){
     ...courtItem,
   ].filter(Boolean)});
 
+  const wq=wallQuantities(m,wallht);
   divs.push({div:'09 · Finishes', items:[
-    {n:'Metal stud partition framing', basis:'Net area × 0.95 LF/SF', qty:m.nsf*PARTFACTOR, u:'LF', p:9.8, mh:0.075, trade:'drywall', src:'3-5/8" steel stud · mkt-adj −30%'},
-    {n:'Gypsum board (5/8" Type X)', basis:'Partition LF × ht × 2 + ceilings', qty:(m.nsf*PARTFACTOR*wallht*2)+m.nsf, u:'SF', p:2.28, mh:0.016, trade:'drywall', src:'Both faces + ceiling · mkt-adj −30%'},
+    {n:'Metal stud partition framing', basis:wq.basisFrame, qty:wq.framingLF, u:'LF', p:9.8, mh:0.075, trade:'drywall', src:'3-5/8" steel stud · mkt-adj −30%'},
+    {n:'Gypsum board (5/8" Type X)', basis:wq.basisGwb, qty:wq.gwbSF, u:'SF', p:2.28, mh:0.016, trade:'drywall', src:'Both faces + ceiling · mkt-adj −30%'},
     {n:'Porcelain tile — bath & kitchen', basis:'Units × 120 SF', qty:m.units*120, u:'SF', p:19.6, mh:0.14, trade:'tile', src:'Bath/kitchen tile · mkt-adj −30%'},
     {n:'Engineered wood flooring', basis:'Net area − tile area', qty:Math.max(m.nsf-m.units*120,0), u:'SF', p:10.5, mh:0.03, trade:'flooring', src:'Living/bedroom · mkt-adj −30%'},
-    {n:'Painting — walls & ceilings', basis:'GWB area', qty:(m.nsf*PARTFACTOR*wallht*2)+m.nsf, u:'SF', p:1.30, mh:0.011, trade:'painter', src:'2 coats · mkt-adj −30%'},
+    {n:'Painting — walls & ceilings', basis:'GWB area', qty:wq.gwbSF, u:'SF', p:1.30, mh:0.011, trade:'painter', src:'2 coats · mkt-adj −30%'},
     {n:'Specialty ceilings / soffits', basis:'≈40 LF per unit', qty:m.units*40, u:'LF', p:129.5, mh:0.28, trade:'drywall', src:'HVAC soffits · mkt-adj −30%'},
   ]});
 
@@ -1048,7 +1068,7 @@ function sendToDealBuilder(){
 
 /* ============ TEMPLATES: save / load an estimate as JSON ============ */
 function saveTemplate(){
-  const data={v:3, metrics:{}, overrides, customRows, floors:floorRows.slice(), wages:Object.assign({},TRADE_RATE),
+  const data={v:3, metrics:{}, overrides, customRows, floors:floorRows.slice(), walls:window.wallPlan||null, wages:Object.assign({},TRADE_RATE),
     markups:{gc:getV('gc-pct'),op:getV('op-pct'),cont:getV('cont-pct'),margin:getV('margin-pct'),labor:getV('labor-mult')}};
   ['m-name','m-job','m-borough','m-gfa','m-nsf','m-footprint','m-floors','m-units','m-f2f','m-perim',
    'm-cellar','m-worktype','m-ctype','m-occ','m-court','m-windows','m-doors-entry','m-doors-stair',
@@ -1070,6 +1090,8 @@ function loadTemplate(input){
       Object.assign(overrides, d.overrides||{});
       customRows=(d.customRows||[]).slice();
       floorRows=(d.floors||[]).slice(); renderFloors();
+      window.wallPlan = d.walls && Array.isArray(d.walls.records) ? d.walls : {records:[],faces:{}};
+      if(window.refreshWallSummary) window.refreshWallSummary();
       if(d.wages) Object.keys(d.wages).forEach(k=>{ if(TRADE_RATE[k]!==undefined) TRADE_RATE[k]=d.wages[k]; });
       renderWages();
       if(d.markups){ setV('gc-pct',d.markups.gc); setV('op-pct',d.markups.op);
@@ -2237,3 +2259,6 @@ function renderPlumbing(){
 
   <p class="hint" style="margin-top:1rem">Fixture counts, fixture units and pipe sizes follow the NYC Plumbing Code (IPC-based: Table 403.1 fixtures, 709.1 DFU, 710.1 drain & stack sizing, Appendix E water sizing) plus NYC-specific items like the house trap. Water-service size and heater storage are approximate. This is an estimating breakdown, not a stamped plumbing design — the engineer of record's riser diagrams govern. Pricing stays on the Plumbing line of the estimate.</p>`;
 }
+
+/* Wall-measuring tool (walls.js). Optional: if the file is missing the app falls back to the factor. */
+loadScript('walls.js').catch(function(e){ console.warn('walls.js not loaded — wall measuring unavailable', e); });
