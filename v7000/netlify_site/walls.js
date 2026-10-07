@@ -341,20 +341,21 @@
     TYPES.forEach(function (t) { var v = +j[t.key]; if (!(v >= 0) || !isFinite(v)) v = 0; out[t.key] = Math.min(Math.round(v), AI_CAP[t.key] || 3000); if (out[t.key] > 0) any = true; });
     return any ? out : null;
   }
-  async function aiEstimateCurrent(floorName) {
-    var scale = (currentRec(false) && currentRec(false).ptPerFt) || (+$('w-scale').value || 18);
-    var base = S.page.getViewport({ scale: 1 }), long = 2400;
+  async function aiEstimateCurrent(floorName, pageNum) {
+    var scale = +$('w-scale').value || 18;
+    var pg = await S.pdf.getPage(pageNum);
+    var base = pg.getViewport({ scale: 1 }), long = 2400;
     var pxPerFt = long / Math.max(base.width, base.height) * scale;
-    var canvas = await renderPageCanvas(S.entry, S.pageNum - 1, long);
+    var canvas = await renderPageCanvas(S.entry, pageNum - 1, long);
     var b64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
     var txt = await callExtractor([{ media_type: 'image/jpeg', data: b64 }], '', aiPrompt(pxPerFt, floorName));
     var vals = cleanAI(parseJSON(txt));
     if (!vals) throw new Error('the AI did not return usable wall lengths');
     var j = parseJSON(txt) || {};
-    var key = 'ai:' + recKey();
+    var key = 'ai:' + (S.entry ? S.entry.name || 'plans' : 'plans') + '#' + pageNum;
     var recs = root.wallPlan.records;
     root.wallPlan.records = recs.filter(function (r) { return r.key !== key; });
-    root.wallPlan.records.push({ ai: true, key: key, file: S.entry.name || 'plans', page: S.pageNum, title: S.titles[S.pageNum] || '',
+    root.wallPlan.records.push({ ai: true, key: key, file: S.entry.name || 'plans', page: pageNum, title: S.titles[pageNum] || '',
       floor: floorName, floors: 1, lf: vals, confidence: j.confidence || '', notes: String(j.notes || '').slice(0, 160) });
     return vals;
   }
@@ -368,17 +369,20 @@
       if (!jobs.length) { $('w-status').innerHTML = '<span class="w-warn">No floor-plan sheets recognised by title. Pick a sheet and use “AI estimate this sheet”.</span>'; return; }
     } else jobs.push({ page: S.pageNum, floor: $('w-floor').value || names[0] });
     aiStop = false; ['w-ai1', 'w-aiall'].forEach(function (i) { $(i).disabled = true; }); $('w-aistop').style.display = '';
-    var ok = 0, fail = [];
-    for (var i = 0; i < jobs.length && !aiStop; i++) {
-      var jb = jobs[i];
-      $('w-status').innerHTML = '🤖 AI reading page ' + jb.page + ' (' + esc(jb.floor) + ') — ' + (i + 1) + ' of ' + jobs.length + '…';
-      try {
-        S.pageNum = jb.page; S.page = await S.pdf.getPage(jb.page);
-        var done = false;
-        for (var a = 0; a < 2 && !done; a++) { try { await aiEstimateCurrent(jb.floor); done = true; } catch (e) { if (a === 1) throw e; } }
-        ok++;
-      } catch (e) { fail.push('p' + jb.page + ': ' + (e && e.message || e)); }
+    var ok = 0, fail = [], fin = 0, next = 0;
+    $('w-status').innerHTML = '🤖 AI reading ' + jobs.length + ' sheet(s) in parallel…';
+    async function worker() {
+      while (next < jobs.length && !aiStop) {
+        var jb = jobs[next++];
+        try {
+          var done = false;
+          for (var a = 0; a < 2 && !done; a++) { try { await aiEstimateCurrent(jb.floor, jb.page); done = true; } catch (e) { if (a === 1) throw e; } }
+          ok++;
+        } catch (e) { fail.push('p' + jb.page + ': ' + (e && e.message || e)); }
+        fin++; $('w-status').innerHTML = '🤖 AI done ' + fin + ' of ' + jobs.length + '…';
+      }
     }
+    await Promise.all([worker(), worker(), worker()]);
     ['w-ai1', 'w-aiall'].forEach(function (i) { $(i).disabled = false; }); $('w-aistop').style.display = 'none';
     await gotoPage(all ? startPage : jobs[0].page);
     $('w-page').value = S.pageNum;

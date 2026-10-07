@@ -223,22 +223,43 @@ async function callExtractor(parts,pageText,prompt){
   return (d2.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n');
 }
 
+// Run async fn over items with at most `n` in flight (keeps results in input order).
+async function pool(items,n,fn){
+  const out=new Array(items.length); let next=0;
+  const worker=async()=>{ while(next<items.length){ const i=next++; out[i]=await fn(items[i],i); } };
+  await Promise.all(Array.from({length:Math.min(n,items.length)},worker));
+  return out;
+}
+
 // Convert a file to downscaled images, batch under the size budget, extract each.
 // Returns an array of parsed objects (merged later across all files).
+// Only send pages likely to hold numbers we need: cover/zoning, schedules, proposed floor plans.
+function pageRelevant(page,i){
+  const txt=((page&&typeof page==='object'&&page.text)||'').toUpperCase();
+  if(i<2||txt.length<60) return true;                       // cover sheets / scanned pages: always read
+  if(/GROSS FLOOR AREA|ZONING|FLOOR AREA|LOT AREA|DOOR SCHEDULE|WINDOW SCHEDULE|FINISH SCHEDULE|HVAC|MECHANICAL SCHEDULE|AC UNIT|CONDENS|EXHAUST|SOE|UNDERPIN|PILE/.test(txt)&&!/ELEVATION|DETAIL/.test(txt.slice(-600))) return true;
+  if(/(PROPOSED|CELLAR|NEW|[0-9](ST|ND|RD|TH))\s+[A-Z0-9 \-&]{0,30}(FLOOR )?PLAN/.test(txt)&&!/(DEMOLITION|CEILING|ROOF|ELEVATION|SECTION|DETAIL|FRAMING|FOUNDATION|PLUMBING|ELECTRICAL|SPRINKLER)[ A-Z\-]{0,12}PLAN/.test(txt)) return true;
+  return false;
+}
 async function extractFromImages(pages,onProg){
-  const parsed=[]; const errs=[];
-  for(let i=0;i<pages.length;i++){
-    if(onProg) onProg(i+1,pages.length);
-    const page=pages[i];
+  const parsed=[]; const errs=[]; let done=0;
+  let keep=pages.map(pageRelevant);
+  if(keep.filter(Boolean).length<1) keep=pages.map(()=>true);
+  const total=keep.filter(Boolean).length;
+  const res=await pool(pages,4,async(page,i)=>{
+    if(!keep[i]) return null;
     const imgB64=(typeof page==='string')?page:(page&&page.img)||page;
     const rawText=(page&&typeof page==='object'&&page.text)||'';
     let t=null;
-    for(let attempt=0;attempt<2&&t===null;attempt++){
+    for(let attempt=0;attempt<3&&t===null;attempt++){
       try{ t=await callExtractor([{media_type:'image/jpeg',data:imgB64}],rawText); }
-      catch(e){ const m=(e&&e.message)||String(e); if(attempt===0&&/too long|timed out|502|504/i.test(m)) continue; errs.push(m); break; }
+      catch(e){ const m=(e&&e.message)||String(e); if(attempt<2&&/too long|timed out|502|504|429|rate|overload/i.test(m)){ await new Promise(r=>setTimeout(r,1500*(attempt+1))); continue; } errs.push(m); break; }
     }
-    if(t!==null){ const j=parseJSON(t); if(j){ j._page=i; parsed.push(j); } }
-  }
+    done++; if(onProg) onProg(done,total);
+    if(t!==null){ const j=parseJSON(t); if(j){ j._page=i; return j; } }
+    return null;
+  });
+  res.forEach(j=>{ if(j) parsed.push(j); });
   if(!parsed.length&&errs.length) throw new Error(errs[0]);
   return parsed;
 }
@@ -480,15 +501,19 @@ async function countFromPlans(results,msg,sub){
     if(seen.has(key)) return; seen.add(key); plans.push(r);
   });
   const out={entry:0,stair:0,interior:0,windows:0,acRooms:0,sheets:[]};
-  for(let i=0;i<plans.length;i++){
-    const r=plans[i]; const label=r.sheetNumber||r.floorLabel||('page '+(r._page+1));
-    if(msg) msg.textContent=`Counting doors, windows & rooms — floor plan ${i+1} of ${plans.length}…`;
+  let fin=0;
+  const res=await pool(plans,2,async(r)=>{
+    const label=r.sheetNumber||r.floorLabel||('page '+(r._page+1));
     const t=await countOnSheet(r._entry,r._page,(d,n)=>{ if(sub) sub.textContent=label+' — section '+d+' of '+n; });
-    if(!t) continue;
+    fin++; if(msg) msg.textContent=`Counting doors, windows & rooms — ${fin} of ${plans.length} floor plans done…`;
+    return {r,label,t};
+  });
+  res.forEach(({r,label,t})=>{
+    if(!t) return;
     const mult=(typeof r.typicalFloors==='number'&&r.typicalFloors>1&&r.typicalFloors<60)?Math.round(r.typicalFloors):1;
     PLAN_KEYS.forEach(k=>{ out[k]+=t[k]*mult; });
     out.sheets.push({sheet:label,mult,...t});
-  }
+  });
   return out;
 }
 function planBasis(k){ return (planInfo&&planInfo[k]==='plans')?(k==='ac'?'Rooms ≥8×8 with window (plans)':'Counted from floor plans'):'Count from schedule'; }
