@@ -629,7 +629,7 @@ const DIV_SCHED={
   '02':{crew:7,phase:1}, '04':{crew:5,phase:2}, '06':{crew:6,phase:2},
   '05':{crew:4,phase:3}, '07':{crew:4,phase:3}, '08':{crew:5,phase:3},
   '21/22':{crew:7,phase:4}, '23':{crew:7,phase:4}, '26':{crew:7,phase:4},
-  '09':{crew:18,phase:5}, '11':{crew:6,phase:6}, '14':{crew:3,phase:6}
+  '09':{crew:18,phase:5}, '12':{crew:5,phase:6}, '11':{crew:6,phase:6}, '14':{crew:3,phase:6}
 };
 const PHASE_NAMES={
   1:'Site, Demolition & Foundations', 2:'Structure',
@@ -711,6 +711,46 @@ function excavationItems(m,explicitOnly){
   if(!explicitOnly||m.underpinSet) if(m.underpinLF>0) it.push({n:'Underpinning of adjacent buildings', basis:'LF of neighbor foundation walls', qty:m.underpinLF, u:'LF', p:1800, mh:10, trade:'concrete', src:'Hand-dug pits, sequenced'});
   if(m.piles>0) it.push({n:'Piles (steel pipe / helical, installed)', basis:'Count from foundation plan', qty:m.piles, u:'EA', p:6500, mh:12, trade:'operator', src:'Incl. load test allowance'});
   return it;
+}
+
+
+/* Lines taken from the owner's 14-month cost schedule (≈49,000 SF project). Each is the schedule
+   dollar amount spread over that project's GFA, so it scales with size. All editable in the table. */
+const SCHED_SF=49000;
+function schedItem(n,total,trade,laborShare,extra){
+  const p=Math.round(total/SCHED_SF*100)/100;
+  return Object.assign({n, basis:'GFA SF · $'+p.toFixed(2)+'/SF (from your schedule: $'+Math.round(total/1000)+'k ÷ '+SCHED_SF.toLocaleString('en-US')+' SF)',
+    qty:null, u:'SF', p, fixed:true, mh:Math.round(p*laborShare/(TRADE_RATE[trade]||60)*10000)/10000, trade, src:'Your cost schedule'},extra||{});
+}
+function scheduleDivs(m,isNew){
+  const L=(it)=>{ it.qty=m.gfa; return it; };
+  const out=[];
+  out.push({div:'00 · Site Logistics, Protection & Utilities', items:[
+    L(schedItem('Fences & gates',20000,'laborer',0.5)),
+    L(schedItem('Sidewalk shed',75000,'carpenter',0.45)),
+    L(schedItem('Scaffolding',90000,'laborer',0.55)),
+    !isNew && L(schedItem('Water & sewer connections',55000,'plumber',0.5)),
+    isNew && L(schedItem('Debris removal (construction)',175000,'laborer',0.35)),
+  ].filter(Boolean)});
+  out.push({div:'07 · Stucco & Rooftop', items:[
+    L(schedItem('Stucco',150000,'mason',0.6)),
+    L(schedItem('Rooftop (finish, pavers, rails)',100000,'roofer',0.5)),
+  ]});
+  out.push({div:'09 · Millwork & Closets', items:[
+    L(schedItem('Moldings',75000,'carpenter',0.55)),
+    L(schedItem('Closets & shelves',55000,'millwork',0.45)),
+  ]});
+  out.push({div:'23 · Refuse & Ventilation', items:[
+    L(schedItem('Refuse system & ventilation',90000,'hvac',0.45)),
+  ]});
+  out.push({div:'26 · Low-Voltage', items:[
+    L(schedItem('Camera & intercom system',55000,'electrician',0.45)),
+  ]});
+  out.push({div:'12 · Site Completion', items:[
+    L(schedItem('New sidewalk',45000,'concrete',0.5)),
+    L(schedItem('Landscaping',10000,'laborer',0.5)),
+  ]});
+  return out;
 }
 
 // Each item now carries: mh (man-hours per unit) and trade (for labor rate).
@@ -811,6 +851,7 @@ function buildTakeoff(m){
     {n:'Electrical (service, distribution, units, fixtures, fire alarm)', basis:'GFA SF · $12/SF (set)', qty:m.gfa, u:'SF', p:12, fixed:true, mh:0.05, trade:'electrician', src:'$12/SF flat'},
   ]});
 
+  scheduleDivs(m,isNew).forEach(d=>divs.push(d));
   return divs;
 }
 

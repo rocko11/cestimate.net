@@ -49,10 +49,27 @@
 
   // LF per wall type across every record, each record counted once per floor it represents
   function totalsByType(plan) {
-    var by = {}, floorsMeasured = 0;
-    TYPES.forEach(function (t) { by[t.key] = 0; });
-    ((plan && plan.records) || []).forEach(function (r) {
+    var by = {}, aiBy = {}, floorsMeasured = 0, floorsAI = 0, hand = {};
+    TYPES.forEach(function (t) { by[t.key] = 0; aiBy[t.key] = 0; });
+    var recs = (plan && plan.records) || [];
+    // sheets that were measured by hand: an AI estimate for the same sheet is ignored
+    recs.forEach(function (r) {
+      if (r.ai) return;
+      var lf = 0; (r.runs || []).forEach(function (run) { lf += runLF(run.pts, r.ptPerFt); });
+      if (lf > 0) hand[r.key] = true;
+    });
+    recs.forEach(function (r) {
       var n = Math.max(1, +r.floors || 1), lf = 0;
+      if (r.ai) {
+        if (hand[String(r.key).replace(/^ai:/, '')]) return;
+        var any = 0;
+        TYPES.forEach(function (t) {
+          var v = Math.max(0, +(r.lf && r.lf[t.key]) || 0);
+          by[t.key] += v * n; aiBy[t.key] += v * n; any += v;
+        });
+        if (any > 0) floorsAI += n;
+        return;
+      }
       (r.runs || []).forEach(function (run) {
         var v = runLF(run.pts, r.ptPerFt);
         if (by[run.type] === undefined) by[run.type] = 0;
@@ -60,29 +77,34 @@
       });
       if (lf > 0) floorsMeasured += n;
     });
-    return { by: by, floorsMeasured: floorsMeasured };
+    return { by: by, aiBy: aiBy, floorsMeasured: floorsMeasured, floorsAI: floorsAI };
   }
 
   /* Quantities for the takeoff. Returns null when nothing has been measured.
    * m: {nsf}, wallht in ft, factor = fallback LF per net SF, floorsTotal = floors in the building.
    * Floors not yet measured keep using the factor so the estimate is never short. */
   function quantities(plan, m, wallht, factor, floorsTotal) {
-    var t = totalsByType(plan), measuredLF = 0, k;
-    for (k in t.by) measuredLF += t.by[k];
-    if (!(measuredLF > 0)) return null;
+    var t = totalsByType(plan), totalLF = 0, aiLF = 0, k;
+    for (k in t.by) totalLF += t.by[k];
+    for (k in t.aiBy) aiLF += t.aiBy[k];
+    if (!(totalLF > 0)) return null;
+    var handLF = totalLF - aiLF;
     floorsTotal = Math.max(1, +floorsTotal || 1);
-    var fm = Math.min(t.floorsMeasured, floorsTotal);
+    var fm = Math.min(t.floorsMeasured + t.floorsAI, floorsTotal);
     var rest = Math.max(0, 1 - fm / floorsTotal);
     var restLF = factor * (m.nsf || 0) * rest;
     var board = 0;
     for (k in t.by) board += t.by[k] * facesOf(plan, k) * wallht;
     board += restLF * wallht * 2;
     var restTxt = restLF > 0 ? ' + factor for ' + (floorsTotal - fm) + ' unmeasured floor' + (floorsTotal - fm === 1 ? '' : 's') : '';
-    var head = 'MEASURED ' + Math.round(measuredLF).toLocaleString('en-US') + ' LF on ' + fm + ' of ' + floorsTotal + ' floors' + restTxt;
+    var fmt = function (v) { return Math.round(v).toLocaleString('en-US'); };
+    var what = (handLF > 0 && aiLF > 0) ? 'MEASURED ' + fmt(handLF) + ' LF + AI-ESTIMATED ' + fmt(aiLF) + ' LF'
+             : (aiLF > 0 ? 'AI-ESTIMATED ' + fmt(aiLF) + ' LF (verify by measuring)' : 'MEASURED ' + fmt(handLF) + ' LF');
+    var head = what + ' on ' + fm + ' of ' + floorsTotal + ' floors' + restTxt;
     return {
-      measured: true,
-      measuredLF: measuredLF, restLF: restLF,
-      framingLF: measuredLF + restLF,
+      measured: aiLF <= 0 || handLF > 0,
+      measuredLF: handLF, aiLF: aiLF, restLF: restLF,
+      framingLF: totalLF + restLF,
       gwbSF: board + (m.nsf || 0),
       floorsMeasured: fm, floorsTotal: floorsTotal,
       byType: t.by,
@@ -154,6 +176,9 @@
           '<option value="6">3/32" = 1\'-0"</option><option value="custom">Calibrated</option></select></label>' +
         '<button id="w-calib">Set scale from a known length</button>' +
         '<span id="w-scale-note" class="w-note" style="margin:0"></span>' +
+        '<button id="w-ai1" title="Ask the AI to estimate wall footage on this sheet">🤖 AI estimate this sheet</button>' +
+        '<button id="w-aiall" title="AI estimate every proposed floor plan sheet">🤖 AI estimate all floor plans</button>' +
+        '<button id="w-aistop" style="display:none">Stop</button>' +
         '<span style="flex:1"></span>' +
         '<button id="w-zout">−</button><span id="w-zlbl">60%</span><button id="w-zin">+</button>' +
         '<button class="primary" id="w-done">Done — use in estimate</button>' +
@@ -283,6 +308,83 @@
   }
   function dot(c, p, color, z) { c.beginPath(); c.fillStyle = color; c.arc(p[0] * z, p[1] * z, 4, 0, 6.2832); c.fill(); }
 
+
+  /* ---------- AI pre-fill (estimates only; hand-measured sheets always win) ---------- */
+  var AI_CAP = { part: 2500, demis: 1500, corr: 1500, shaft: 600, furr: 3000 };
+  function aiPrompt(pxPerFt, floorName) {
+    return 'You are a construction estimator reading one architectural floor plan sheet (' + floorName + '). ' +
+      'Scale: about ' + (Math.round(pxPerFt * 10) / 10) + ' image pixels = 1 foot. ' +
+      'Estimate the TOTAL LINEAR FEET (centerline) of NEW framed (stud) walls that will need framing and drywall on THIS floor, by type: ' +
+      'part = interior partitions within units/rooms; demis = demising walls between units or units and corridor/stairs (rated); ' +
+      'corr = corridor walls (non-demising); shaft = shaft/elevator/stair enclosure walls; furr = furring on existing exterior/masonry walls to remain. ' +
+      'Do NOT count existing masonry or brick walls to remain (except as furr), exterior walls, windows or doors openings (measure through them), or walls shown dashed for demolition. ' +
+      'Use dimension strings and the scale to size things. Return JSON only: {"part":number,"demis":number,"corr":number,"shaft":number,"furr":number,"confidence":"low|medium|high","notes":"one short sentence"}';
+  }
+  function isFloorPlanTitle(t) {
+    t = t || '';
+    return /PLAN/i.test(t) && /(PROPOSED|CELLAR|FLOOR|^[0-9]+(ST|ND|RD|TH))/i.test(t) && !/(DEMOLITION|CEILING|ROOF|ELEVATION|SECTION|DETAIL|LEGEND|SCHEDULE|SITE|FOUNDATION|FRAMING)/i.test(t);
+  }
+  function floorForTitle(t, names) {
+    t = (t || '').toUpperCase();
+    if (/CELLAR|BASEMENT/.test(t)) { for (var i = 0; i < names.length; i++) if (/cellar|basement/i.test(names[i])) return names[i]; return names[0]; }
+    var ord = { FIRST: 1, '1ST': 1, SECOND: 2, '2ND': 2, THIRD: 3, '3RD': 3, FOURTH: 4, '4TH': 4, FIFTH: 5, '5TH': 5, SIXTH: 6, '6TH': 6, SEVENTH: 7, '7TH': 7, EIGHTH: 8, '8TH': 8 };
+    for (var k in ord) if (t.indexOf(k) >= 0) {
+      for (var j = 0; j < names.length; j++) if (new RegExp('(^|\\D)' + ord[k] + '(\\D|$)').test(names[j]) || names[j].toUpperCase().indexOf(k) >= 0) return names[j];
+      var off = names.some(function (n) { return /cellar|basement/i.test(n); }) ? 1 : 0;
+      return names[Math.min(names.length - 1, ord[k] - 1 + off)];
+    }
+    return null;
+  }
+  function cleanAI(j) {
+    if (!j) return null;
+    var out = {}, any = false;
+    TYPES.forEach(function (t) { var v = +j[t.key]; if (!(v >= 0) || !isFinite(v)) v = 0; out[t.key] = Math.min(Math.round(v), AI_CAP[t.key] || 3000); if (out[t.key] > 0) any = true; });
+    return any ? out : null;
+  }
+  async function aiEstimateCurrent(floorName) {
+    var scale = (currentRec(false) && currentRec(false).ptPerFt) || (+$('w-scale').value || 18);
+    var base = S.page.getViewport({ scale: 1 }), long = 2400;
+    var pxPerFt = long / Math.max(base.width, base.height) * scale;
+    var canvas = await renderPageCanvas(S.entry, S.pageNum - 1, long);
+    var b64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+    var txt = await callExtractor([{ media_type: 'image/jpeg', data: b64 }], '', aiPrompt(pxPerFt, floorName));
+    var vals = cleanAI(parseJSON(txt));
+    if (!vals) throw new Error('the AI did not return usable wall lengths');
+    var j = parseJSON(txt) || {};
+    var key = 'ai:' + recKey();
+    var recs = root.wallPlan.records;
+    root.wallPlan.records = recs.filter(function (r) { return r.key !== key; });
+    root.wallPlan.records.push({ ai: true, key: key, file: S.entry.name || 'plans', page: S.pageNum, title: S.titles[S.pageNum] || '',
+      floor: floorName, floors: 1, lf: vals, confidence: j.confidence || '', notes: String(j.notes || '').slice(0, 160) });
+    return vals;
+  }
+  var aiStop = false;
+  async function runAI(all) {
+    if (!S.entry || !S.page) { $('w-status').innerHTML = '<span class="w-warn">Open the plan PDF first.</span>'; return; }
+    if (typeof callExtractor !== 'function' || typeof renderPageCanvas !== 'function' || typeof parseJSON !== 'function') { $('w-status').innerHTML = '<span class="w-warn">AI helper not available in this build.</span>'; return; }
+    var names = floorNames(), startPage = S.pageNum, jobs = [];
+    if (all) {
+      for (var p = 1; p <= S.pdf.numPages; p++) { var t = S.titles[p] || ''; if (isFloorPlanTitle(t)) { var fl = floorForTitle(t, names); if (fl) jobs.push({ page: p, floor: fl }); } }
+      if (!jobs.length) { $('w-status').innerHTML = '<span class="w-warn">No floor-plan sheets recognised by title. Pick a sheet and use “AI estimate this sheet”.</span>'; return; }
+    } else jobs.push({ page: S.pageNum, floor: $('w-floor').value || names[0] });
+    aiStop = false; ['w-ai1', 'w-aiall'].forEach(function (i) { $(i).disabled = true; }); $('w-aistop').style.display = '';
+    var ok = 0, fail = [];
+    for (var i = 0; i < jobs.length && !aiStop; i++) {
+      var jb = jobs[i];
+      $('w-status').innerHTML = '🤖 AI reading page ' + jb.page + ' (' + esc(jb.floor) + ') — ' + (i + 1) + ' of ' + jobs.length + '…';
+      try {
+        S.pageNum = jb.page; S.page = await S.pdf.getPage(jb.page);
+        var done = false;
+        for (var a = 0; a < 2 && !done; a++) { try { await aiEstimateCurrent(jb.floor); done = true; } catch (e) { if (a === 1) throw e; } }
+        ok++;
+      } catch (e) { fail.push('p' + jb.page + ': ' + (e && e.message || e)); }
+    }
+    ['w-ai1', 'w-aiall'].forEach(function (i) { $(i).disabled = false; }); $('w-aistop').style.display = 'none';
+    await gotoPage(all ? startPage : jobs[0].page);
+    $('w-page').value = S.pageNum;
+    $('w-status').insertAdjacentHTML('beforeend', '<div>🤖 AI estimated ' + ok + ' sheet(s)' + (fail.length ? '; failed: ' + esc(fail.join(' | ')) : '') + '. <b>These are estimates — verify by measuring.</b></div>');
+  }
+
   /* ---------- totals / controls ---------- */
   function updateTotals() {
     var plan = root.wallPlan, t = totalsByType(plan);
@@ -300,9 +402,12 @@
     var ft = floorsTotal();
     rows += '<div class="w-row"><span>Total measured</span><b>' + Math.round(total).toLocaleString('en-US') + ' LF</b></div>';
     $('w-totals').innerHTML = rows;
-    var warn = t.floorsMeasured < ft;
-    $('w-status').innerHTML = 'Measured floors: <b>' + t.floorsMeasured + ' of ' + ft + '</b>.' +
-      (warn ? ' <span class="w-warn">Unmeasured floors use the 0.30 LF/SF factor until you measure them.</span>' : ' All floors measured.');
+    var covered = Math.min(ft, t.floorsMeasured + t.floorsAI), warn = covered < ft, aiTot = 0;
+    for (var ak in t.aiBy) aiTot += t.aiBy[ak];
+    var aiHere = null; root.wallPlan.records.forEach(function (r) { if (r.ai && r.key === 'ai:' + recKey()) aiHere = r; });
+    $('w-status').innerHTML = 'Measured floors: <b>' + t.floorsMeasured + '</b>' + (t.floorsAI ? ' · AI-estimated floors: <b>' + t.floorsAI + '</b> (' + Math.round(aiTot).toLocaleString('en-US') + ' LF — <span class="w-warn">estimate, verify</span>)' : '') + ' · of ' + ft + ' floors.' +
+      (warn ? ' <span class="w-warn">Remaining floors use the 0.30 LF/SF factor.</span>' : ' All floors covered.') +
+      (aiHere ? '<div class="w-note">AI on this sheet (' + esc(aiHere.floor) + '): ' + TYPES.map(function (ty) { return ty.label.split(' ')[0] + ' ' + (aiHere.lf[ty.key] || 0); }).join(', ') + ' LF · confidence ' + esc(aiHere.confidence || '?') + (aiHere.notes ? ' — ' + esc(aiHere.notes) : '') + '. Measuring this sheet by hand replaces it.</div>' : '');
     $('w-faces').innerHTML = TYPES.map(function (ty) {
       var f = facesOf(plan, ty.key);
       return '<div class="w-row"><span>' + esc(ty.label) + '</span><select data-faces="' + ty.key + '"><option value="1"' + (f === 1 ? ' selected' : '') + '>1 face</option><option value="2"' + (f === 2 ? ' selected' : '') + '>2 faces</option></select></div>';
@@ -392,7 +497,7 @@
     $('w-undo').onclick = undo; $('w-finish').onclick = finishRun;
     $('w-clear').onclick = function () {
       if (!window.confirm('Remove all measured walls on this sheet?')) return;
-      var key = recKey(); root.wallPlan.records = root.wallPlan.records.filter(function (r) { return r.key !== key; });
+      var key = recKey(); root.wallPlan.records = root.wallPlan.records.filter(function (r) { return r.key !== key && r.key !== 'ai:' + key; });
       S.cur = []; S.rec = null; draw(); updateTotals();
     };
     $('w-calib').onclick = function () { S.cur = []; S.calib = []; draw(); $('w-status').innerHTML = '<b>Scale:</b> click the two ends of a dimension you know (a dimensioned wall, the lot line), then enter its length.'; };
@@ -401,6 +506,9 @@
       var rec = currentRec(true); rec.ptPerFt = +v; rec.scaleMode = 'preset'; draw(); updateTotals();
     };
     $('w-floor').onchange = pushRecFields; $('w-nfloors').onchange = pushRecFields;
+    $('w-ai1').onclick = function () { runAI(false); };
+    $('w-aiall').onclick = function () { runAI(true); };
+    $('w-aistop').onclick = function () { aiStop = true; };
     $('w-page').onchange = function () { gotoPage(+$('w-page').value); };
     $('w-zin').onclick = function () { S.zoom = Math.min(2.5, Math.round((S.zoom + 0.15) * 100) / 100); S.cur = []; renderPage(); };
     $('w-zout').onclick = function () { S.zoom = Math.max(0.25, Math.round((S.zoom - 0.15) * 100) / 100); S.cur = []; renderPage(); };
@@ -456,8 +564,9 @@
     var s = $('wall-summary'); if (!s) return;
     var t = totalsByType(root.wallPlan), total = 0;
     for (var k in t.by) total += t.by[k];
+    var aiT = 0; for (var q in t.aiBy) aiT += t.aiBy[q];
     s.textContent = total > 0
-      ? 'Measured: ' + Math.round(total).toLocaleString('en-US') + ' LF of wall on ' + t.floorsMeasured + ' of ' + floorsTotal() + ' floors'
+      ? (aiT > 0 ? 'AI-estimated ' + Math.round(aiT).toLocaleString('en-US') + ' LF (verify) + ' : '') + 'measured ' + Math.round(total - aiT).toLocaleString('en-US') + ' LF of wall on ' + Math.min(floorsTotal(), t.floorsMeasured + t.floorsAI) + ' of ' + floorsTotal() + ' floors'
       : 'Not measured — framing & sheetrock use a 0.30 LF/SF factor';
   }
 
