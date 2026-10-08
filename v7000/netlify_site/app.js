@@ -278,7 +278,7 @@ function pageRelevant(page,i){
   const txt=((page&&typeof page==='object'&&page.text)||'').toUpperCase().replace(/\s+/g,' ');
   if(i<3||txt.length<60) return true;
   if(/SCHEDULE|DOOR|WINDOW|HVAC|MECHANICAL|CONDENS|EXHAUST|FLOOR AREA|ZONING|LOT AREA|SOE|UNDERPIN|PILE|UNIT|APARTMENT|GENERAL NOTES|ENERGY|FENESTRATION|LEGEND/.test(txt)&&!/ELEVATION|REFLECTED CEILING|DEMOLITION/.test(txt.slice(0,3000)+txt.slice(-600))) return true;
-  if(/(ELEVATIONS?|SECTIONS?|DETAILS?|REFLECTED CEILING|DEMOLITION|ROOF PLAN|FOUNDATION PLAN|FRAMING PLAN|STRUCTURAL|PLUMBING|SPRINKLER|ELECTRICAL|SITE PLAN|FIRE ALARM)/.test(txt)) return false;
+  if(/(ELECTRICAL|PLUMBING|SPRINKLER|FIRE ALARM|LIGHTING|RISER DIAGRAM)/.test(txt.slice(0,1500))&&!/FLOOR PLAN|SECTION|ROOF/.test(txt.slice(0,1500))) return false;
   return true;
 }
 async function extractFromImages(pages,onProg){
@@ -359,15 +359,15 @@ async function countPlanFacts(results){
   });
   cand.length=Math.min(cand.length,6);
   const outs=await pool(cand,3,async r=>{
-    for(let a=0;a<2;a++){
-      try{
-        const c=await renderPageCanvas(r._entry,r._page,2400);
-        const j=parseJSON(await callExtractor([{media_type:'image/jpeg',data:c.toDataURL('image/jpeg',0.9).split(',')[1]}],'',ELEV_PROMPT));
-        if(j){ const mult=(typeof r.typicalFloors==='number'&&r.typicalFloors>1&&r.typicalFloors<60)?Math.round(r.typicalFloors):1;
-          return {elev:(+j.elevators>=0&&+j.elevators<12)?Math.round(+j.elevators):null, units:(+j.units>=0&&+j.units<60)?Math.round(+j.units)*mult:null}; }
-      }catch(e){}
-    }
-    return null;
+    let img=null; try{ const c=await renderPageCanvas(r._entry,r._page,2400); img=c.toDataURL('image/jpeg',0.9).split(',')[1]; }catch(e){ return null; }
+    const one=async()=>{ for(let a=0;a<2;a++){ try{ const j=parseJSON(await callExtractor([{media_type:'image/jpeg',data:img}],'',ELEV_PROMPT)); if(j) return j; }catch(e){} } return null; };
+    const vs=(await Promise.all([one(),one()])).filter(Boolean);
+    if(vs.length===2&&(+vs[0].units!==+vs[1].units||+vs[0].elevators!==+vs[1].elevators)){ const t=await one(); if(t) vs.push(t); }
+    if(!vs.length) return null;
+    const med=k=>{ const a=vs.map(v=>+v[k]).filter(x=>x>=0).sort((p,q)=>p-q); return a.length?a[Math.floor((a.length-1)/2)+(a.length%2===0?1:0)*0]:null; };
+    const el=med('elevators'), un=med('units');
+    const mult=(typeof r.typicalFloors==='number'&&r.typicalFloors>1&&r.typicalFloors<60)?Math.round(r.typicalFloors):1;
+    return {elev:(el!=null&&el<12)?Math.round(el):null, units:(un!=null&&un<60)?Math.round(un)*mult:null};
   });
   let ev=null, un=0, anyU=false;
   outs.forEach(o=>{ if(!o) return; if(o.elev!=null) ev=Math.max(ev||0,o.elev); if(o.units!=null){ un+=o.units; anyU=true; } });
