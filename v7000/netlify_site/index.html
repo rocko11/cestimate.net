@@ -151,6 +151,11 @@
   <div class="section">
     <div class="section-title">Net floor area by floor</div>
     <div class="card">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <input id="qf-text" class="cell" style="flex:1;min-width:260px;text-align:left" placeholder="Quick entry:  cellar 9604, 1 9604, 2 9604, 3-8 9604, 9-10 4725">
+        <button class="btn" type="button" onclick="applyQuickFloors()">Apply floor areas</button>
+        <span class="hint">gross SF per floor. Sets floors, GFA, NSF (85%) and footprint</span>
+      </div>
       <div style="overflow-x:auto">
         <table id="floor-table">
           <thead><tr>
@@ -425,7 +430,7 @@ window.addEventListener('error',function(e){
   if(el){ el.textContent='Script error: '+(e.message||'unknown')+'  — please report this.'; el.classList.remove('hidden'); }
 });
 </script>
-<script src="app.js?v=20261008-fc"></script>
+<script src="app.js?v=20261008-fd"></script>
 
 <!-- 3D RENDERING MODAL -->
 <div id="rendering-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,20,38,.93);overflow:auto;">

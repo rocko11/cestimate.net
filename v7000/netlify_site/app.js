@@ -1819,6 +1819,25 @@ function createFloorRows(){
   for(let i=1;i<=floors;i++) floorRows.push({name:'Floor '+i, gross:0, net:0});
   renderFloors();
 }
+function applyQuickFloors(){
+  const t=(document.getElementById('qf-text')||{}).value||''; const map={}; let cel=null;
+  t.split(/[,;\n]+/).forEach(function(p){
+    p=p.trim(); if(!p) return; const m=p.match(/^(cellar|basement|cel)\s*[:=]?\s*([\d,\.]+)/i);
+    if(m){ cel=parseFloat(m[2].replace(/,/g,'')); return; }
+    const r=p.match(/^(\d+)\s*(?:st|nd|rd|th)?\s*(?:-|to|thru|\u2013)?\s*(\d+)?\s*(?:st|nd|rd|th)?\s*[:=]?\s*([\d,\.]+)\s*$/i);
+    if(!r) return; const a=+r[1], b=r[2]?+r[2]:a, v=parseFloat(r[3].replace(/,/g,''));
+    if(!(v>0)||b<a||b>80) return; for(let f=a;f<=b;f++) map[f]=v;
+  });
+  const fl=Object.keys(map).map(Number).sort(function(x,y){return x-y;}); if(!fl.length&&!cel) return;
+  const rows=[]; const eff=0.85;
+  if(cel>0) rows.push({name:'Cellar',gross:cel,net:Math.round(cel*eff)});
+  fl.forEach(function(f){ rows.push({name:'Floor '+f,gross:map[f],net:Math.round(map[f]*eff)}); });
+  floorRows=rows; renderFloors();
+  const g=rows.reduce(function(s,r){return s+r.gross;},0), n=rows.reduce(function(s,r){return s+r.net;},0);
+  const fp=Math.max.apply(null,rows.map(function(r){return r.gross;}));
+  setV('m-gfa',Math.round(g)); setV('m-nsf',Math.round(n)); setV('m-footprint',Math.round(fp));
+  if(fl.length) setV('m-floors',Math.max.apply(null,fl)); if(cel>0) setV('m-cellar',1);
+}
 function addFloorRow(){ floorRows.push({name:'Level '+(floorRows.length+1), gross:0, net:0}); renderFloors(); }
 function rmFloorRow(i){ floorRows.splice(i,1); renderFloors(); }
 function setFloor(i,f,v){
