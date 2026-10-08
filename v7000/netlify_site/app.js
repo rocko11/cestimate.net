@@ -982,7 +982,7 @@ function metrics(){
   g.excDepthSet=raw('m-exc-depth')!==null; g.soeSet=raw('m-soe-lf')!==null; g.underpinSet=raw('m-underpin-lf')!==null;
   g.excDepth=g.excDepthSet?raw('m-exc-depth'):(g.cellar?12:4);
   g.soeLF=g.soeSet?raw('m-soe-lf'):(g.cellar?P:0);
-  g.underpinLF=g.underpinSet?raw('m-underpin-lf'):(g.cellar?Math.round(P*0.5):0);
+  g.underpinLF=g.underpinSet?raw('m-underpin-lf'):0;
   g.piles=raw('m-piles')||0;
   // NSF is never assumed. If missing, net-based lines price at 0 and a warning shows.
   return g;
