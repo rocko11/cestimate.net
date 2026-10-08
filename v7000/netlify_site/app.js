@@ -350,7 +350,8 @@ async function refineFloorAreas(merged){
 const ELEV_PROMPT=`This is one architectural floor plan of a building. Answer from what is drawn on THIS sheet only.
 1) elevators: number of ELEVATOR shafts/cars shown (passenger or stretcher). Do NOT count legend entries, "elevator sign" notes, stair or shaft labels, dumbwaiters.
 2) units: number of separate DWELLING UNITS (apartments) on this level, e.g. labels like "UNIT 1A", "UNIT 1B+NYC", "UNIT 3C". Count each distinct unit once. Count 0 if the level has no apartments (cellar storage, amenity only).
-Return JSON only: {"elevators":number,"units":number}`;
+3) unitAreas: for EACH dwelling unit on this level, the area in square feet printed for that whole unit (labels like "658 SF WITHIN UNIT" or "UNIT 3A ... 742 SF"). One number per unit, in the same order as you counted them. Do NOT list room areas, corridors, stairs or balconies. Use [] if none are printed.
+Return JSON only: {"elevators":number,"units":number,"unitAreas":[number]}`;
 async function countPlanFacts(results){
   const seen=new Set(), cand=[];
   results.forEach(r=>{
@@ -367,11 +368,13 @@ async function countPlanFacts(results){
     const med=k=>{ const a=vs.map(v=>+v[k]).filter(x=>x>=0).sort((p,q)=>p-q); return a.length?a[Math.floor((a.length-1)/2)+(a.length%2===0?1:0)*0]:null; };
     const el=med('elevators'), un=med('units');
     const mult=(typeof r.typicalFloors==='number'&&r.typicalFloors>1&&r.typicalFloors<60)?Math.round(r.typicalFloors):1;
-    return {elev:(el!=null&&el<12)?Math.round(el):null, units:(un!=null&&un<60)?Math.round(un)*mult:null};
+    const sums=vs.map(v=>(Array.isArray(v.unitAreas)?v.unitAreas.map(Number).filter(x=>x>150&&x<3500):[])).map(a=>({n:a.length,sum:a.reduce((p,q)=>p+q,0)})).filter(x=>x.n>0).sort((p,q)=>p.sum-q.sum);
+    const pick=sums.length?sums[Math.floor((sums.length-1)/2)]:null;
+    return {elev:(el!=null&&el<12)?Math.round(el):null, units:(un!=null&&un<60)?Math.round(un)*mult:null, label:r.floorLabel||r.sheetNumber||'', netRes:pick?Math.round(pick.sum):null, unitsOnSheet:un, mult};
   });
   let ev=null, un=0, anyU=false;
   outs.forEach(o=>{ if(!o) return; if(o.elev!=null) ev=Math.max(ev||0,o.elev); if(o.units!=null){ un+=o.units; anyU=true; } });
-  return {elevators:ev, units:anyU&&un>0?un:null};
+  return {elevators:ev, units:anyU&&un>0?un:null, perFloor:outs.filter(o=>o&&o.netRes>0)};
 }
 async function analyzePlans(){
   track('plans_uploaded',{file_count:files.length});
@@ -419,6 +422,18 @@ async function analyzePlans(){
       if(need.ac){ merged.hvacIndoor=pc.acRooms; planInfo.ac='plans'; drop('HVAC indoor units'); }
       track('plans_counted',{sheets:pc.sheets.length,doors:pc.entry+pc.stair+pc.interior,windows:pc.windows,ac:pc.acRooms});
     }
+    // Net residential SF per floor = sum of the unit areas printed on that floor's plan (when the plan prints them).
+    try{
+      if(pf&&Array.isArray(pf.perFloor)&&pf.perFloor.length){
+        merged.floorAreas=Array.isArray(merged.floorAreas)?merged.floorAreas.slice():[];
+        pf.perFloor.forEach(o=>{
+          const cel=/CELL|BASE/i.test(o.label), m=String(o.label).match(/(\d+)/); if(!cel&&!m) return;
+          const hit=merged.floorAreas.find(r=>{ const rc=/CELL|BASE/i.test(String(r.name||'')), rm=String(r.name||'').match(/(\d+)/); return cel?rc:(!rc&&rm&&m&&+rm[1]===+m[1]); });
+          if(hit){ if(!(typeof hit.net==='number'&&hit.net>0)) hit.net=o.netRes; }
+          else merged.floorAreas.push({name:cel?'CELLAR':String(+m[1]),gross:null,net:o.netRes});
+        });
+      }
+    }catch(e){}
     if(pf){
       if(!(typeof merged.elevators==='number'&&merged.elevators>0)&&pf.elevators!=null){ merged.elevators=pf.elevators; const i=missing.indexOf('Elevators'); if(i>=0) missing.splice(i,1); }
       if(pf.units!=null&&(!(typeof merged.units==='number'&&merged.units>0)||merged.units<pf.units*0.6||merged.units>pf.units*1.6)){ merged.units=pf.units; const i=missing.indexOf('Units'); if(i>=0) missing.splice(i,1); }
