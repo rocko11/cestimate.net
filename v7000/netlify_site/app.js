@@ -433,6 +433,12 @@ async function analyzePlans(){
       if(planInfo.vector&&typeof merged.doorsInterior==='number') merged.doorsInterior=Math.max(0,merged.doorsInterior-merged.units);   // vector door total already includes the apartment entry doors
       }
     }
+    // Footprint sanity: the largest single-floor gross area in the plan's floor-area table is the footprint.
+    // A smaller value (e.g. a unit or one wing) would shrink excavation, SOE, underpinning, foundation and roofing.
+    try{
+      const gs=(Array.isArray(merged.floorAreas)?merged.floorAreas:[]).filter(r=>r&&!/BULK|ROOF|PENT/i.test(String(r.name||''))&&typeof r.gross==='number'&&r.gross>500).map(r=>r.gross);
+      if(gs.length>=2){ const mx=Math.max(...gs); if(!(typeof merged.footprint==='number'&&merged.footprint>=mx*0.8&&merged.footprint<=mx*1.2)){ console.warn('footprint',merged.footprint,'replaced by largest floor area',mx); merged.footprint=Math.round(mx); } }
+    }catch(e){}
     // Anything the plans didn't give (net SF, perimeter, counts) gets an NYC
     // rule-of-thumb value so no line prices at $0 — flagged on the review screen.
     const keep=[];
