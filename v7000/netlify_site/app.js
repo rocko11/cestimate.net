@@ -545,6 +545,15 @@ Return JSON only: {"entry":number,"stair":number,"interior":number,"windows":num
 const PLAN_KEYS=['entry','stair','interior','windows','acRooms'];
 
 async function renderPageCanvas(entry,pageIdx,longSide){
+  // Fast path: the page was already rendered (2400 px JPEG) when the file was added. Re-rendering the vector PDF
+  // is what made big sets hang, so reuse that image instead of asking pdf.js again.
+  {
+    const pg0=entry.images&&entry.images[pageIdx]; const b0=(typeof pg0==='string')?pg0:(pg0&&pg0.img);
+    if(b0){
+      const im=await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error('image decode failed')); i.src='data:image/jpeg;base64,'+b0; });
+      const c0=document.createElement('canvas'); c0.width=im.width; c0.height=im.height; c0.getContext('2d').drawImage(im,0,0); return c0;
+    }
+  }
   if(entry.file&&entry.file.type==='application/pdf'){
     const pdfjs=await ensurePdfJs();
     if(!entry._pdf) entry._pdf=await pdfjs.getDocument({data:await entry.file.arrayBuffer()}).promise;

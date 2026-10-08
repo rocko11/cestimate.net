@@ -252,6 +252,17 @@
     for (var p = 1; p <= S.pdf.numPages; p++) {
       var o = document.createElement('option'); o.value = p; o.textContent = 'Page ' + p; sel.appendChild(o);
     }
+    // titles straight from the text already extracted when the file was added (no extra pdf.js work)
+    var haveText = false;
+    if (entry.images && entry.images.length) {
+      for (var q0 = 1; q0 <= S.pdf.numPages; q0++) {
+        var im = entry.images[q0 - 1], tx = im && typeof im === 'object' ? im.text : '';
+        if (tx) { haveText = true; var m0 = tx.replace(/\s+/g, ' ').toUpperCase().match(/(PROPOSED|CELLAR|DEMOLITION|NEW|[0-9](?:ST|ND|RD|TH))[A-Z0-9 \-&]{0,30}(?:FLOOR )?(?:REFLECTED CEILING )?PLAN/); var tt = m0 ? m0[0] : ''; S.titles[q0] = tt; if (sel.options[q0 - 1]) sel.options[q0 - 1].textContent = 'Page ' + q0 + (tt ? ' — ' + tt : ''); }
+        else S.titles[q0] = '';
+      }
+    }
+    var nTitles = 0; for (var q1 in S.titles) if (S.titles[q1]) nTitles++;
+    if (nTitles < 3)
     // fill in sheet titles in the background so the list is readable
     (async function () {
       for (var q = 1; q <= S.pdf.numPages; q++) {
@@ -276,6 +287,7 @@
 
   async function renderPage() {
     if (!S.page) return;
+    if (!el.modal.classList.contains('open')) return;   // never render heavy pages in the background
     if (S.rendering) { S.pending = true; return; }
     S.rendering = true;
     try {
@@ -351,8 +363,8 @@
     var scale = +$('w-scale').value || 18;
     var pg = await S.pdf.getPage(pageNum);
     var base = pg.getViewport({ scale: 1 }), long = 2400;
-    var pxPerFt = long / Math.max(base.width, base.height) * scale;
     var canvas = await renderPageCanvas(S.entry, pageNum - 1, long);
+    var pxPerFt = Math.max(canvas.width, canvas.height) / Math.max(base.width, base.height) * scale;
     var b64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
     var txt = await callExtractor([{ media_type: 'image/jpeg', data: b64 }], '', aiPrompt(pxPerFt, floorName));
     var vals = cleanAI(parseJSON(txt));
