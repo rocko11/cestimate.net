@@ -1,3 +1,16 @@
+/* Background-tab fix: browsers pause requestAnimationFrame in hidden tabs, and pdf.js renders through it, so
+   a plan analysis froze whenever you switched to another tab. Use a MessageChannel tick while hidden. */
+(function(){
+  try{
+    const native=window.requestAnimationFrame.bind(window); const q=[]; const mc=new MessageChannel();
+    mc.port1.onmessage=function(){ const f=q.shift(); if(f) try{ f(performance.now()); }catch(e){ console.error(e); } };
+    window.requestAnimationFrame=function(cb){
+      if(!document.hidden) return native(cb);
+      q.push(cb); mc.port2.postMessage(0); return 0;
+    };
+  }catch(e){}
+})();
+
 /* ============ ANALYTICS ============ */
 function track(name,params){try{if(typeof gtag==='function')gtag('event',name,params||{});}catch(e){}}
 
