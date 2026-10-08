@@ -438,7 +438,7 @@ async function analyzePlans(){
             if(!hit){ hit={name:f==='C'?'CELLAR':String(f),gross:null,net:null}; merged.floorAreas.push(hit); }
             if(o.gross>0&&!(typeof hit.gross==='number'&&hit.gross>0&&!/typical/i.test(String(hit.name)))) hit.gross=o.gross;
             const g=hit.gross;
-            if(o.netRes>0&&!(typeof hit.net==='number'&&hit.net>0)&&(!(g>0)||o.netRes<=g*0.95)) hit.net=o.netRes;
+            /* vision-summed unit areas proved unreliable (e.g. 525 SF, 8,351 SF) - leave net blank so it is derived from gross x efficiency */
           });
         });
       }
