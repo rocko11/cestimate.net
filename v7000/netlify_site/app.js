@@ -1824,7 +1824,7 @@ function applyQuickFloors(){
   t.split(/[,;\n]+/).forEach(function(p){
     p=p.trim(); if(!p) return; const m=p.match(/^(cellar|basement|cel)\s*[:=]?\s*([\d,\.]+)/i);
     if(m){ cel=parseFloat(m[2].replace(/,/g,'')); return; }
-    const r=p.match(/^(\d+)\s*(?:st|nd|rd|th)?\s*(?:-|to|thru|\u2013)?\s*(\d+)?\s*(?:st|nd|rd|th)?\s*[:=]?\s*([\d,\.]+)\s*$/i);
+    const r=p.match(/^(\d+)\s*(?:st|nd|rd|th)?\s*(?:(?:-|to|thru|–)\s*(\d+)\s*(?:st|nd|rd|th)?)?\s*[:=]?\s+([\d,\.]+)\s*$/i)||p.match(/^(\d+)()\s*[:=]\s*([\d,\.]+)\s*$/);
     if(!r) return; const a=+r[1], b=r[2]?+r[2]:a, v=parseFloat(r[3].replace(/,/g,''));
     if(!(v>0)||b<a||b>80) return; for(let f=a;f<=b;f++) map[f]=v;
   });
