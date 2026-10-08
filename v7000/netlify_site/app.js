@@ -95,7 +95,10 @@ async function postProxy(payload){
   let last=null;
   for(const url of PROXY_ALTS){
     try{
-      const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const ctl=new AbortController(); const tmr=setTimeout(()=>ctl.abort(),45000);   // never hang on one request
+      let r; try{ r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:ctl.signal}); }
+      catch(err){ if(err&&err.name==='AbortError') throw new Error('the analysis timed out on the server'); throw err; }
+      finally{ clearTimeout(tmr); }
       if(r.status===404){ last={status:404,url}; continue; }   // try the next path
       return r;
     }catch(e){ last={err:e,url}; }
@@ -227,6 +230,11 @@ async function callExtractor(parts,pageText,prompt){
   return (d2.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n');
 }
 
+// Resolve with `fallback` if a step takes longer than ms (the step may keep running in the background).
+function withDeadline(p,ms,fallback){
+  return Promise.race([Promise.resolve(p).catch(e=>{ console.warn('step failed',e); return fallback; }),new Promise(r=>setTimeout(()=>r(fallback),ms))]);
+}
+
 // Run async fn over items with at most `n` in flight (keeps results in input order).
 async function pool(items,n,fn){
   const out=new Array(items.length); let next=0;
@@ -341,6 +349,7 @@ async function analyzePlans(){
   const msg=document.getElementById('analyze-msg');
   const sub=document.getElementById('analyze-sub');
   const results=[]; let lastErr='';
+  const t0=Date.now(); const tick=setInterval(()=>{ if(sub&&!/^\d+s · /.test(sub.textContent||'')) sub.textContent=Math.round((Date.now()-t0)/1000)+'s · '+sub.textContent; else if(sub) sub.textContent=sub.textContent.replace(/^\d+s/,Math.round((Date.now()-t0)/1000)+'s'); },1000);
   try{
     // Files were already compressed to page-images on upload; analyze each,
     // then merge. Schedule sheets, cover sheets and floor plans often live in
@@ -362,13 +371,13 @@ async function analyzePlans(){
     if(!results.length) throw new Error(lastErr || 'no pages could be read');
     const {merged,missing}=mergeExtractions(results);
     if(msg) msg.textContent='Reading the floor-area table…';
-    try{ const fa=await refineFloorAreas(merged); if(fa) merged.floorAreas=fa; }catch(e){ console.warn('floor area refine failed',e); }
+    try{ const fa=await withDeadline(refineFloorAreas(merged),70000,null); if(fa) merged.floorAreas=fa; }catch(e){ console.warn('floor area refine failed',e); }
     const blank=k=>merged[k]==null||merged[k]===-1;
     const need={doors:['doorsEntry','doorsStair','doorsInterior'].every(blank), windows:blank('windows'), ac:blank('hvacIndoor')};
     planInfo={doors:need.doors?'none':'schedule',windows:need.windows?'none':'schedule',ac:need.ac?'none':'schedule',sheets:[]};
     if(need.doors||need.windows||need.ac){
       try{
-        const pc=await countFromPlans(results,msg,sub);
+        const pc=await withDeadline(countFromPlans(results,msg,sub),240000,{sheets:[]});
         if(pc.sheets.length){
           planInfo.sheets=pc.sheets;
           const drop=l=>{ const i=missing.indexOf(l); if(i>=0) missing.splice(i,1); };
@@ -382,7 +391,7 @@ async function analyzePlans(){
     }
     if(!(typeof merged.elevators==='number'&&merged.elevators>0)){
       if(msg) msg.textContent='Counting elevators…';
-      try{ const ev=await countElevators(results); if(ev!=null){ merged.elevators=ev; const i=missing.indexOf('Elevators'); if(i>=0) missing.splice(i,1); } }catch(e){ console.warn('elevator count failed',e); }
+      try{ const ev=await withDeadline(countElevators(results),70000,null); if(ev!=null){ merged.elevators=ev; const i=missing.indexOf('Elevators'); if(i>=0) missing.splice(i,1); } }catch(e){ console.warn('elevator count failed',e); }
     }
     // Sanity rule: every apartment has exactly one entry door. If the count read from the plans/schedule
     // is missing or far from the unit count, trust the unit count (and say so in the console).
@@ -408,8 +417,9 @@ async function analyzePlans(){
     try{ if(window._pendingCad&&window.openCadFile){ const cf=window._pendingCad; setTimeout(function(){ window.openCadFile(cf); },400); } else if(window.autoWalls) setTimeout(function(){ window.autoWalls(); },300); }catch(e){}
     showExtractNote(results.length, files.length, missing, assumed);
     track('analysis_success',{pages_read:results.length});
-    hide('analyzing'); show('step-2'); setChip(2);
+    clearInterval(tick); hide('analyzing'); show('step-2'); setChip(2);
   }catch(err){
+    clearInterval(tick);
     track('analysis_failed',{error:String(err&&err.message).slice(0,100)});
     hide('analyzing'); show('step-1');
     showBanner('Could not read the plans - ' + err.message);
@@ -585,6 +595,8 @@ async function countFromPlans(results,msg,sub){
     const key=(r.sheetNumber||'').replace(/\s/g,'').toUpperCase()||(r._entry.name+'#'+r._page);
     if(seen.has(key)) return; seen.add(key); plans.push(r);
   });
+  plans.sort((a,b)=>(/1ST|FIRST|2ND|TYP/i.test(b.floorLabel||'')?1:0)-(/1ST|FIRST|2ND|TYP/i.test(a.floorLabel||'')?1:0));
+  if(plans.length>6) plans.length=6;   // keep the run time bounded on big sets
   const out={entry:0,stair:0,interior:0,windows:0,acRooms:0,sheets:[]};
   let fin=0;
   const res=await pool(plans,2,async(r)=>{
