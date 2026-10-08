@@ -611,8 +611,7 @@ async function vectorCount(entry,pageIdx,pageText){
   try{
     if(!(entry&&entry.file&&entry.file.type==='application/pdf')) return null;
     const m=String(pageText||'').replace(/\s+/g,' ').match(/(\d+)\s*\/\s*(\d+)\s*["”″]?\s*=\s*1\s*['’′]/);
-    if(!m) return null;
-    const ptFt=72*(+m[1])/(+m[2]); if(!(ptFt>2&&ptFt<40)) return null;
+    let ptFt=m?72*(+m[1])/(+m[2]):0;   // printed scale if it is in the text layer; otherwise inferred below from the door-leaf size
     const pdfjs=await ensurePdfJs();
     if(!entry._pdf) entry._pdf=await pdfjs.getDocument({data:await entry.file.arrayBuffer()}).promise;
     const page=await entry._pdf.getPage(pageIdx+1);
@@ -635,8 +634,8 @@ async function vectorCount(entry,pageIdx,pageText){
       const w=maxx-minx,h=maxy-miny;
       if(!curved&&nseg===6&&(closed||Math.hypot(f[0]-l[0],f[1]-l[1])<1)&&w>12&&w<40&&h>12&&h<40){ hex++; return; }
       if(closed||(!curved&&nseg<5)||nseg>60) return;
-      const c=fit(pts); if(!c) return; const r=c[2]; const rf=r/ptFt;
-      if(rf<1.7||rf>4.3) return;
+      const c=fit(pts); if(!c) return; const r=c[2];
+      if(r<10||r>90) return;
       let dev=0; for(const p of pts){ const d=Math.abs(Math.hypot(p[0]-c[0],p[1]-c[1])-r); if(d>dev) dev=d; }
       if(dev>0.07*r) return;
       let ang=Math.abs(Math.atan2(f[1]-c[1],f[0]-c[0])-Math.atan2(l[1]-c[1],l[0]-c[0]))*180/Math.PI; ang%=360; if(ang>180) ang=360-ang;
@@ -668,7 +667,16 @@ async function vectorCount(entry,pageIdx,pageText){
         flush(false);
       }
     }
-    return {doors:arcs.size, windowTags:hex, ptFt};
+    // keep arcs whose radius is a plausible door leaf (2'-0"..4'-4"); the most common radius is the 3'-0" door
+    const rs=[...arcs.values()]; if(rs.length<6&&!hex) return null;
+    if(!ptFt){
+      const bins=new Map(); rs.forEach(r=>{ const b=Math.round(r/2); bins.set(b,(bins.get(b)||0)+1); });
+      let best=0,bn=0; bins.forEach((n,b)=>{ if(n>bn){ bn=n; best=b*2; } });
+      if(bn<4) return {doors:0,windowTags:hex,ptFt:0};
+      ptFt=best/3;
+    }
+    const doors=rs.filter(r=>{ const f=r/ptFt; return f>=1.7&&f<=4.4; }).length;
+    return {doors, windowTags:hex, ptFt};
   }catch(e){ console.warn('vector count failed',e); return null; }
 }
 
