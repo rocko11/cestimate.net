@@ -351,7 +351,8 @@ const ELEV_PROMPT=`This is one architectural floor plan of a building. Answer fr
 1) elevators: number of ELEVATOR shafts/cars shown (passenger or stretcher). Do NOT count legend entries, "elevator sign" notes, stair or shaft labels, dumbwaiters.
 2) units: number of separate DWELLING UNITS (apartments) on this level, e.g. labels like "UNIT 1A", "UNIT 1B+NYC", "UNIT 3C". Count each distinct unit once. Count 0 if the level has no apartments (cellar storage, amenity only).
 3) unitAreas: for EACH dwelling unit on this level, the area in square feet printed for that whole unit (labels like "658 SF WITHIN UNIT" or "UNIT 3A ... 742 SF"). One number per unit, in the same order as you counted them. Do NOT list room areas, corridors, stairs or balconies. Use [] if none are printed.
-Return JSON only: {"elevators":number,"units":number,"unitAreas":[number]}`;
+4) floorArea: the TOTAL gross floor area of this whole level in square feet if the sheet prints it (zoning/floor-area label, "TOTAL FLOOR AREA", "GROSS AREA"); null if not printed.
+Return JSON only: {"elevators":number,"units":number,"unitAreas":[number],"floorArea":number|null}`;
 async function countPlanFacts(results){
   const seen=new Set(), cand=[];
   results.forEach(r=>{
@@ -370,11 +371,12 @@ async function countPlanFacts(results){
     const mult=(typeof r.typicalFloors==='number'&&r.typicalFloors>1&&r.typicalFloors<60)?Math.round(r.typicalFloors):1;
     const sums=vs.map(v=>(Array.isArray(v.unitAreas)?v.unitAreas.map(Number).filter(x=>x>150&&x<3500):[])).map(a=>({n:a.length,sum:a.reduce((p,q)=>p+q,0)})).filter(x=>x.n>0).sort((p,q)=>p.sum-q.sum);
     const pick=sums.length?sums[Math.floor((sums.length-1)/2)]:null;
-    return {elev:(el!=null&&el<12)?Math.round(el):null, units:(un!=null&&un<60)?Math.round(un)*mult:null, label:r.floorLabel||r.sheetNumber||'', netRes:pick?Math.round(pick.sum):null, unitsOnSheet:un, mult};
+    const fas=vs.map(v=>+v.floorArea).filter(x=>x>1000&&x<60000).sort((p,q)=>p-q); const fa0=fas.length?Math.round(fas[Math.floor((fas.length-1)/2)]):null;
+    return {gross:fa0, rawLabel:r.floorLabel||r.sheetNumber||'', elev:(el!=null&&el<12)?Math.round(el):null, units:(un!=null&&un<60)?Math.round(un)*mult:null, label:r.floorLabel||r.sheetNumber||'', netRes:pick?Math.round(pick.sum):null, unitsOnSheet:un, mult};
   });
   let ev=null, un=0, anyU=false;
   outs.forEach(o=>{ if(!o) return; if(o.elev!=null) ev=Math.max(ev||0,o.elev); if(o.units!=null){ un+=o.units; anyU=true; } });
-  return {elevators:ev, units:anyU&&un>0?un:null, perFloor:outs.filter(o=>o&&o.netRes>0)};
+  return {elevators:ev, units:anyU&&un>0?un:null, perFloor:outs.filter(o=>o&&(o.netRes>0||o.gross>0))};
 }
 async function analyzePlans(){
   track('plans_uploaded',{file_count:files.length});
@@ -427,10 +429,17 @@ async function analyzePlans(){
       if(pf&&Array.isArray(pf.perFloor)&&pf.perFloor.length){
         merged.floorAreas=Array.isArray(merged.floorAreas)?merged.floorAreas.slice():[];
         pf.perFloor.forEach(o=>{
-          const cel=/CELL|BASE/i.test(o.label), m=String(o.label).match(/(\d+)/); if(!cel&&!m) return;
-          const hit=merged.floorAreas.find(r=>{ const rc=/CELL|BASE/i.test(String(r.name||'')), rm=String(r.name||'').match(/(\d+)/); return cel?rc:(!rc&&rm&&m&&+rm[1]===+m[1]); });
-          if(hit){ if(!(typeof hit.net==='number'&&hit.net>0)) hit.net=o.netRes; }
-          else merged.floorAreas.push({name:cel?'CELLAR':String(+m[1]),gross:null,net:o.netRes});
+          const lab=String(o.label), cel=/CELL|BASE/i.test(lab);
+          let nums=(lab.match(/\d+/g)||[]).map(Number).filter(x=>x>=1&&x<=80);
+          let list=cel?['C']:nums.length>=2&&nums[1]>nums[0]&&nums[1]-nums[0]<30&&/-|–|TO|THRU|THROUGH/i.test(lab)?Array.from({length:nums[1]-nums[0]+1},(_,k)=>nums[0]+k):nums.length?[nums[0]]:[];
+          // a "net" that is larger than 0.95 x the gross of that floor is really a gross label: ignore as net
+          list.forEach(f=>{
+            let hit=merged.floorAreas.find(r=>{ const rc=/CELL|BASE/i.test(String(r.name||'')), rm=String(r.name||'').match(/(\d+)/); return f==='C'?rc:(!rc&&rm&&+rm[1]===f); });
+            if(!hit){ hit={name:f==='C'?'CELLAR':String(f),gross:null,net:null}; merged.floorAreas.push(hit); }
+            if(o.gross>0&&!(typeof hit.gross==='number'&&hit.gross>0&&!/typical/i.test(String(hit.name)))) hit.gross=o.gross;
+            const g=hit.gross;
+            if(o.netRes>0&&!(typeof hit.net==='number'&&hit.net>0)&&(!(g>0)||o.netRes<=g*0.95)) hit.net=o.netRes;
+          });
         });
       }
     }catch(e){}
