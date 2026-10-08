@@ -388,40 +388,33 @@ async function analyzePlans(){
     }
     if(!results.length) throw new Error(lastErr || 'no pages could be read');
     const {merged,missing}=mergeExtractions(results);
-    if(msg) msg.textContent='Reading the floor-area table…';
-    try{ const fa=await withDeadline(refineFloorAreas(merged),70000,null); if(fa) merged.floorAreas=fa; }catch(e){ console.warn('floor area refine failed',e); }
+    if(msg) msg.textContent='Reading floor areas, doors, windows, elevators & units in parallel…';
     const blank=k=>merged[k]==null||merged[k]===-1;
     const need={doors:['doorsEntry','doorsStair','doorsInterior'].every(blank), windows:blank('windows'), ac:blank('hvacIndoor')};
     planInfo={doors:need.doors?'none':'schedule',windows:need.windows?'none':'schedule',ac:need.ac?'none':'schedule',sheets:[]};
-    if(need.doors||need.windows||need.ac){
-      try{
-        const pc=await withDeadline(countFromPlans(results,msg,sub),240000,{sheets:[]});
-        if(pc.sheets.length){
-          planInfo.sheets=pc.sheets;
-          const drop=l=>{ const i=missing.indexOf(l); if(i>=0) missing.splice(i,1); };
-          if(need.doors){ merged.doorsEntry=pc.entry; merged.doorsStair=pc.stair; merged.doorsInterior=pc.interior;
-            planInfo.doors='plans'; ['Entry doors','Stair/fire doors','Interior doors'].forEach(drop); }
-          if(need.windows){ merged.windows=pc.windows; planInfo.windows='plans'; drop('Windows'); }
-          if(need.ac){ merged.hvacIndoor=pc.acRooms; planInfo.ac='plans'; drop('HVAC indoor units'); }
-          track('plans_counted',{sheets:pc.sheets.length,doors:pc.entry+pc.stair+pc.interior,windows:pc.windows,ac:pc.acRooms});
-        }
-      }catch(e){ console.warn('plan count failed',e); }
+    const tFA=withDeadline(refineFloorAreas(merged),70000,null).catch(e=>{console.warn('floor area refine failed',e);return null;});
+    const tPC=(need.doors||need.windows||need.ac)?withDeadline(countFromPlans(results,msg,sub),150000,{sheets:[]}).catch(e=>{console.warn('plan count failed',e);return {sheets:[]};}):Promise.resolve({sheets:[]});
+    const tPF=withDeadline(countPlanFacts(results),80000,null).catch(e=>{console.warn('plan facts failed',e);return null;});
+    const [fa,pc,pf]=await Promise.all([tFA,tPC,tPF]);
+    if(fa) merged.floorAreas=fa;
+    if(pc&&pc.sheets&&pc.sheets.length){
+      planInfo.sheets=pc.sheets;
+      const drop=l=>{ const i=missing.indexOf(l); if(i>=0) missing.splice(i,1); };
+      if(need.doors){ merged.doorsEntry=pc.entry; merged.doorsStair=pc.stair; merged.doorsInterior=pc.interior;
+        planInfo.doors='plans'; ['Entry doors','Stair/fire doors','Interior doors'].forEach(drop); }
+      if(need.windows){ merged.windows=pc.windows; planInfo.windows='plans'; drop('Windows'); }
+      if(need.ac){ merged.hvacIndoor=pc.acRooms; planInfo.ac='plans'; drop('HVAC indoor units'); }
+      track('plans_counted',{sheets:pc.sheets.length,doors:pc.entry+pc.stair+pc.interior,windows:pc.windows,ac:pc.acRooms});
     }
-    {
-      if(msg) msg.textContent='Counting elevators and apartments…';
-      try{
-        const pf=await withDeadline(countPlanFacts(results),80000,null);
-        if(pf){
-          if(!(typeof merged.elevators==='number'&&merged.elevators>0)&&pf.elevators!=null){ merged.elevators=pf.elevators; const i=missing.indexOf('Elevators'); if(i>=0) missing.splice(i,1); }
-          if(pf.units!=null&&(!(typeof merged.units==='number'&&merged.units>0)||merged.units<pf.units*0.6||merged.units>pf.units*1.6)){ merged.units=pf.units; const i=missing.indexOf('Units'); if(i>=0) missing.splice(i,1); }
-        }
-      }catch(e){ console.warn('plan facts failed',e); }
+    if(pf){
+      if(!(typeof merged.elevators==='number'&&merged.elevators>0)&&pf.elevators!=null){ merged.elevators=pf.elevators; const i=missing.indexOf('Elevators'); if(i>=0) missing.splice(i,1); }
+      if(pf.units!=null&&(!(typeof merged.units==='number'&&merged.units>0)||merged.units<pf.units*0.6||merged.units>pf.units*1.6)){ merged.units=pf.units; const i=missing.indexOf('Units'); if(i>=0) missing.splice(i,1); }
     }
     // Sanity rule: every apartment has exactly one entry door. If the count read from the plans/schedule
     // is missing or far from the unit count, trust the unit count (and say so in the console).
     if(typeof merged.units==='number'&&merged.units>0){
       const de=merged.doorsEntry;
-      if(typeof de!=='number'||de<=0||de<merged.units*0.8||de>merged.units*1.5){
+      if(planInfo.doors!=='schedule'&&de!==merged.units){
         console.warn('entry doors',de,'does not match',merged.units,'units - using unit count');
         merged.doorsEntry=merged.units; if(planInfo.doors==='none') planInfo.doors='none';
       }
@@ -617,7 +610,7 @@ async function countOnSheet(entry,pageIdx,onTile){
     }
     done++; if(onTile) onTile(done,tiles.length);
   };
-  for(let i=0;i<tiles.length;i+=3) await Promise.all(tiles.slice(i,i+3).map(run));  // 3 at a time
+  await Promise.all(tiles.map(run));  // all tiles at once
   return ok?tot:null;
 }
 
@@ -632,7 +625,7 @@ async function countFromPlans(results,msg,sub){
   if(plans.length>6) plans.length=6;   // keep the run time bounded on big sets
   const out={entry:0,stair:0,interior:0,windows:0,acRooms:0,sheets:[]};
   let fin=0;
-  const res=await pool(plans,2,async(r)=>{
+  const res=await pool(plans,3,async(r)=>{
     const label=r.sheetNumber||r.floorLabel||('page '+(r._page+1));
     const t=await countOnSheet(r._entry,r._page,(d,n)=>{ if(sub) sub.textContent=label+' — section '+d+' of '+n; });
     fin++; if(msg) msg.textContent=`Counting doors, windows & rooms — ${fin} of ${plans.length} floor plans done…`;
