@@ -203,7 +203,20 @@ function imageToScaled(file){
 }
 
 // Send a batch of page-images for extraction: proxy first, direct fallback.
+let _inflight=0; const _waitQ=[]; const MAX_INFLIGHT=8;
 async function callExtractor(parts,pageText,prompt){
+  if(_inflight>=MAX_INFLIGHT) await new Promise(r=>_waitQ.push(r));
+  _inflight++;
+  try{
+    let last;
+    for(let a=0;a<3;a++){
+      try{ return await callExtractor0(parts,pageText,prompt); }
+      catch(e){ last=e; if(!/timed out|429|rate|overload|529|network|server error 5|took too long/i.test(String(e&&e.message))) break; await new Promise(r=>setTimeout(r,1500*(a+1))); }
+    }
+    throw last;
+  }finally{ _inflight--; const n=_waitQ.shift(); if(n) n(); }
+}
+async function callExtractor0(parts,pageText,prompt){
   prompt=prompt||EXTRACTION_PROMPT;
   // On the deployed site this goes through the Netlify function, which holds the key.
   let proxyErr=null;
@@ -392,9 +405,9 @@ async function analyzePlans(){
     const blank=k=>merged[k]==null||merged[k]===-1;
     const need={doors:['doorsEntry','doorsStair','doorsInterior'].every(blank), windows:blank('windows'), ac:blank('hvacIndoor')};
     planInfo={doors:need.doors?'none':'schedule',windows:need.windows?'none':'schedule',ac:need.ac?'none':'schedule',sheets:[]};
-    const tFA=withDeadline(refineFloorAreas(merged),70000,null).catch(e=>{console.warn('floor area refine failed',e);return null;});
+    const tFA=withDeadline(refineFloorAreas(merged),150000,null).catch(e=>{console.warn('floor area refine failed',e);return null;});
     const tPC=(need.doors||need.windows||need.ac)?withDeadline(countFromPlans(results,msg,sub),150000,{sheets:[]}).catch(e=>{console.warn('plan count failed',e);return {sheets:[]};}):Promise.resolve({sheets:[]});
-    const tPF=withDeadline(countPlanFacts(results),80000,null).catch(e=>{console.warn('plan facts failed',e);return null;});
+    const tPF=withDeadline(countPlanFacts(results),150000,null).catch(e=>{console.warn('plan facts failed',e);return null;});
     const [fa,pc,pf]=await Promise.all([tFA,tPC,tPF]);
     if(fa) merged.floorAreas=fa;
     if(pc&&pc.sheets&&pc.sheets.length){
