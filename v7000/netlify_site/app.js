@@ -357,8 +357,8 @@ async function countPlanFacts(results){
     if(!r||r.sheetKind!=='floor_plan'||!r._entry||typeof r._page!=='number') return;
     const k=r._entry.name+'#'+r._page; if(seen.has(k)) return; seen.add(k); cand.push(r);
   });
-  cand.length=Math.min(cand.length,6);
-  const outs=await pool(cand,3,async r=>{
+  cand.length=Math.min(cand.length,14);
+  const outs=await pool(cand,4,async r=>{
     let img=null; try{ const c=await renderPageCanvas(r._entry,r._page,2400); img=c.toDataURL('image/jpeg',0.9).split(',')[1]; }catch(e){ return null; }
     const one=async()=>{ for(let a=0;a<2;a++){ try{ const j=parseJSON(await callExtractor([{media_type:'image/jpeg',data:img}],'',ELEV_PROMPT)); if(j) return j; }catch(e){} } return null; };
     const vs=(await Promise.all([one(),one()])).filter(Boolean);
@@ -634,8 +634,12 @@ async function countFromPlans(results,msg,sub){
     const key=(r.sheetNumber||'').replace(/\s/g,'').toUpperCase()||(r._entry.name+'#'+r._page);
     if(seen.has(key)) return; seen.add(key); plans.push(r);
   });
-  plans.sort((a,b)=>(/1ST|FIRST|2ND|TYP/i.test(b.floorLabel||'')?1:0)-(/1ST|FIRST|2ND|TYP/i.test(a.floorLabel||'')?1:0));
-  if(plans.length>6) plans.length=6;   // keep the run time bounded on big sets
+  // Big sets (e.g. 10 floors, one sheet each): tile-count the cellar/ground sheets plus a few typical floors, then
+  // extrapolate to the floors that were not sampled. Units/elevators are counted on every sheet separately.
+  const isSpecial=r=>/CELLAR|BASEMENT|1ST|FIRST|GROUND|LOBBY/i.test((r.floorLabel||'')+' '+(r.sheetNumber||''));
+  const special=plans.filter(isSpecial).slice(0,2), typical=plans.filter(r=>!isSpecial(r));
+  const sampledTyp=typical.slice(0,Math.max(2,6-special.length)), skipped=typical.slice(sampledTyp.length);
+  plans.length=0; special.concat(sampledTyp).forEach(r=>plans.push(r));
   const out={entry:0,stair:0,interior:0,windows:0,acRooms:0,sheets:[]};
   let fin=0;
   const res=await pool(plans,3,async(r)=>{
@@ -650,6 +654,16 @@ async function countFromPlans(results,msg,sub){
     PLAN_KEYS.forEach(k=>{ out[k]+=t[k]*mult; });
     out.sheets.push({sheet:label,mult,...t});
   });
+  if(skipped.length&&sampledTyp.length){
+    const rows=res.filter(x=>x.t&&sampledTyp.includes(x.r));
+    if(rows.length){
+      const mult=(x=>x.r.typicalFloors>1&&x.r.typicalFloors<60?Math.round(x.r.typicalFloors):1);
+      const f=skipped.length;
+      const ex={sheet:'+'+f+' similar floors (est.)',mult:1};
+      PLAN_KEYS.forEach(k=>{ const avg=rows.reduce((a,x)=>a+x.t[k],0)/rows.length; ex[k]=Math.round(avg*f); out[k]+=ex[k]; });
+      out.sheets.push(ex);
+    }
+  }
   return out;
 }
 function planBasis(k){ return (planInfo&&planInfo[k]==='plans')?(k==='ac'?'Rooms ≥8×8 with window (plans)':'Counted from floor plans'):'Count from schedule'; }
