@@ -411,7 +411,7 @@ async function analyzePlans(){
     const [fa,pc,pf]=await Promise.all([tFA,tPC,tPF]);
     if(fa) merged.floorAreas=fa;
     if(pc&&pc.sheets&&pc.sheets.length){
-      planInfo.sheets=pc.sheets;
+      planInfo.sheets=pc.sheets; planInfo.vector=!!pc.vector;
       const drop=l=>{ const i=missing.indexOf(l); if(i>=0) missing.splice(i,1); };
       if(need.doors){ merged.doorsEntry=pc.entry; merged.doorsStair=pc.stair; merged.doorsInterior=pc.interior;
         planInfo.doors='plans'; ['Entry doors','Stair/fire doors','Interior doors'].forEach(drop); }
@@ -430,6 +430,7 @@ async function analyzePlans(){
       if(planInfo.doors!=='schedule'&&de!==merged.units){
         console.warn('entry doors',de,'does not match',merged.units,'units - using unit count');
         merged.doorsEntry=merged.units; if(planInfo.doors==='none') planInfo.doors='none';
+      if(planInfo.vector&&typeof merged.doorsInterior==='number') merged.doorsInterior=Math.max(0,merged.doorsInterior-merged.units);   // vector door total already includes the apartment entry doors
       }
     }
     // Anything the plans didn't give (net SF, perimeter, counts) gets an NYC
@@ -602,6 +603,75 @@ async function renderPageCanvas(entry,pageIdx,longSide){
   return c;
 }
 
+
+/* ============ VECTOR COUNT (doors = swing arcs, windows = hexagon tags) ============ */
+// CAD-exported PDFs keep every door swing and window tag as real vector geometry. Counting that is exact and
+// instant, so it replaces the AI's guess whenever the sheet has it. Door swing = ~90-degree arc of 1.7-4.3 ft radius.
+async function vectorCount(entry,pageIdx,pageText){
+  try{
+    if(!(entry&&entry.file&&entry.file.type==='application/pdf')) return null;
+    const m=String(pageText||'').replace(/\s+/g,' ').match(/(\d+)\s*\/\s*(\d+)\s*["”″]?\s*=\s*1\s*['’′]/);
+    if(!m) return null;
+    const ptFt=72*(+m[1])/(+m[2]); if(!(ptFt>2&&ptFt<40)) return null;
+    const pdfjs=await ensurePdfJs();
+    if(!entry._pdf) entry._pdf=await pdfjs.getDocument({data:await entry.file.arrayBuffer()}).promise;
+    const page=await entry._pdf.getPage(pageIdx+1);
+    const ol=await page.getOperatorList(); const O=pdfjs.OPS;
+    let ctm=[1,0,0,1,0,0]; const st=[];
+    const mul=(a,b)=>[a[0]*b[0]+a[1]*b[2],a[0]*b[1]+a[1]*b[3],a[2]*b[0]+a[3]*b[2],a[2]*b[1]+a[3]*b[3],a[4]*b[0]+a[5]*b[2]+b[4],a[4]*b[1]+a[5]*b[3]+b[5]];
+    const ap=(x,y)=>[ctm[0]*x+ctm[2]*y+ctm[4],ctm[1]*x+ctm[3]*y+ctm[5]];
+    const arcs=new Map(); let hex=0;
+    const fit=pts=>{
+      const a=pts[0],b=pts[pts.length>>1],c=pts[pts.length-1];
+      const D=2*(a[0]*(b[1]-c[1])+b[0]*(c[1]-a[1])+c[0]*(a[1]-b[1])); if(Math.abs(D)<1e-6) return null;
+      const A=a[0]*a[0]+a[1]*a[1],B=b[0]*b[0]+b[1]*b[1],C=c[0]*c[0]+c[1]*c[1];
+      const ux=(A*(b[1]-c[1])+B*(c[1]-a[1])+C*(a[1]-b[1]))/D, uy=(A*(c[0]-b[0])+B*(a[0]-c[0])+C*(b[0]-a[0]))/D;
+      return [ux,uy,Math.hypot(a[0]-ux,a[1]-uy)];
+    };
+    const done=(pts,closed,curved,nseg)=>{
+      if(pts.length<4) return;
+      const f=pts[0],l=pts[pts.length-1];
+      let minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9; for(const p of pts){ if(p[0]<minx)minx=p[0]; if(p[0]>maxx)maxx=p[0]; if(p[1]<miny)miny=p[1]; if(p[1]>maxy)maxy=p[1]; }
+      const w=maxx-minx,h=maxy-miny;
+      if(!curved&&nseg===6&&(closed||Math.hypot(f[0]-l[0],f[1]-l[1])<1)&&w>12&&w<40&&h>12&&h<40){ hex++; return; }
+      if(closed||(!curved&&nseg<5)||nseg>60) return;
+      const c=fit(pts); if(!c) return; const r=c[2]; const rf=r/ptFt;
+      if(rf<1.7||rf>4.3) return;
+      let dev=0; for(const p of pts){ const d=Math.abs(Math.hypot(p[0]-c[0],p[1]-c[1])-r); if(d>dev) dev=d; }
+      if(dev>0.07*r) return;
+      let ang=Math.abs(Math.atan2(f[1]-c[1],f[0]-c[0])-Math.atan2(l[1]-c[1],l[0]-c[0]))*180/Math.PI; ang%=360; if(ang>180) ang=360-ang;
+      if(ang<70||ang>110) return;
+      arcs.set(Math.round(c[0]/3)+','+Math.round(c[1]/3),r);
+    };
+    for(let i=0;i<ol.fnArray.length;i++){
+      const fn=ol.fnArray[i], a=ol.argsArray[i];
+      if(fn===O.save) st.push(ctm.slice());
+      else if(fn===O.restore){ if(st.length) ctm=st.pop(); }
+      else if(fn===O.transform) ctm=mul(a,ctm);
+      else if(fn===O.constructPath){
+        const ops=a[0], co=a[1]; let k=0, pts=null, nseg=0, curved=false;
+        const flush=(closed)=>{ if(pts) done(pts,closed,curved,nseg); pts=null; nseg=0; curved=false; };
+        for(const op of ops){
+          if(op===O.moveTo){ flush(false); pts=[ap(co[k],co[k+1])]; k+=2; }
+          else if(op===O.lineTo){ if(!pts) pts=[]; pts.push(ap(co[k],co[k+1])); nseg++; k+=2; }
+          else if(op===O.curveTo||op===O.curveTo2||op===O.curveTo3){
+            if(!pts) pts=[]; curved=true; nseg++;
+            const p0=pts.length?pts[pts.length-1]:[0,0]; let c1,c2,c3;
+            if(op===O.curveTo){ c1=ap(co[k],co[k+1]); c2=ap(co[k+2],co[k+3]); c3=ap(co[k+4],co[k+5]); k+=6; }
+            else if(op===O.curveTo2){ c1=p0; c2=ap(co[k],co[k+1]); c3=ap(co[k+2],co[k+3]); k+=4; }
+            else { c1=ap(co[k],co[k+1]); c3=ap(co[k+2],co[k+3]); c2=c3; k+=4; }
+            for(const t of [0.25,0.5,0.75,1]){ const u=1-t; pts.push([u*u*u*p0[0]+3*u*u*t*c1[0]+3*u*t*t*c2[0]+t*t*t*c3[0], u*u*u*p0[1]+3*u*u*t*c1[1]+3*u*t*t*c2[1]+t*t*t*c3[1]]); }
+          }
+          else if(op===O.closePath){ flush(true); }
+          else if(op===O.rectangle){ k+=4; }
+        }
+        flush(false);
+      }
+    }
+    return {doors:arcs.size, windowTags:hex, ptFt};
+  }catch(e){ console.warn('vector count failed',e); return null; }
+}
+
 async function countOnSheet(entry,pageIdx,onTile){
   const c=await renderPageCanvas(entry,pageIdx,3600);
   const cols=c.width>=c.height?3:2, rows=c.width>=c.height?2:3;
@@ -623,7 +693,16 @@ async function countOnSheet(entry,pageIdx,onTile){
     }
     done++; if(onTile) onTile(done,tiles.length);
   };
+  const pgE=entry.images&&entry.images[pageIdx]; const vecP=vectorCount(entry,pageIdx,(pgE&&typeof pgE==='object'&&pgE.text)||'');
   await Promise.all(tiles.map(run));  // all tiles at once
+  const vc=await vecP;
+  if(vc&&vc.doors>=6){
+    // exact door count from the drawing's swing arcs; keep the AI's stair-door share, the rest is interior
+    const aiTot=tot.entry+tot.stair+tot.interior;
+    const stair=aiTot>0?Math.min(vc.doors,Math.round(tot.stair/aiTot*vc.doors)):0;
+    tot.stair=stair; tot.entry=0; tot.interior=vc.doors-stair; tot.vector=true; ok=Math.max(ok,1);
+  }
+  if(vc&&vc.windowTags>=4){ tot.windows=vc.windowTags; ok=Math.max(ok,1); }
   return ok?tot:null;
 }
 
@@ -651,7 +730,7 @@ async function countFromPlans(results,msg,sub){
   res.forEach(({r,label,t})=>{
     if(!t) return;
     const mult=(typeof r.typicalFloors==='number'&&r.typicalFloors>1&&r.typicalFloors<60)?Math.round(r.typicalFloors):1;
-    PLAN_KEYS.forEach(k=>{ out[k]+=t[k]*mult; });
+    PLAN_KEYS.forEach(k=>{ out[k]+=t[k]*mult; }); if(t.vector) out.vector=true;
     out.sheets.push({sheet:label,mult,...t});
   });
   if(skipped.length&&sampledTyp.length){
