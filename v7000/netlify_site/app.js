@@ -439,6 +439,23 @@ async function analyzePlans(){
       const gs=(Array.isArray(merged.floorAreas)?merged.floorAreas:[]).filter(r=>r&&!/BULK|ROOF|PENT/i.test(String(r.name||''))&&typeof r.gross==='number'&&r.gross>500).map(r=>r.gross);
       if(gs.length>=2){ const mx=Math.max(...gs); if(!(typeof merged.footprint==='number'&&merged.footprint>=mx*0.8&&merged.footprint<=mx*1.2)){ console.warn('footprint',merged.footprint,'replaced by largest floor area',mx); merged.footprint=Math.round(mx); } }
     }catch(e){}
+    // Floor table must list every floor: add the floors the table did not cover, using the typical floor's gross area (flagged "typical").
+    try{
+      const N=(typeof merged.floors==='number'&&merged.floors>1&&merged.floors<=80)?Math.round(merged.floors):0;
+      if(N&&Array.isArray(merged.floorAreas)&&merged.floorAreas.length){
+        const rows=merged.floorAreas.slice(), have=new Set();
+        rows.forEach(r=>{ const m=String(r&&r.name||'').match(/(\d+)/); if(m&&!/BULK|ROOF|PENT/i.test(r.name)) have.add(+m[1]); });
+        const gs=rows.filter(r=>r&&typeof r.gross==='number'&&r.gross>500&&!/CELL|BASE|BULK|ROOF|PENT/i.test(String(r.name||''))).map(r=>r.gross).sort((a,b)=>a-b);
+        if(gs.length&&have.size<N){
+          const typ=gs[Math.floor(gs.length/2)], add=[];
+          for(let f=1;f<=N;f++) if(!have.has(f)) add.push({name:String(f)+' (typical)',gross:typ,net:null});
+          const cel=rows.filter(r=>/CELL|BASE/i.test(String(r.name||''))), rest=rows.filter(r=>!/CELL|BASE/i.test(String(r.name||'')));
+          const ord=r=>{ const m=String(r.name||'').match(/(\d+)/); return /BULK|ROOF|PENT/i.test(r.name||'')?999:(m?+m[1]:500); };
+          merged.floorAreas=cel.concat(rest.concat(add).sort((a,b)=>ord(a)-ord(b)));
+          console.warn('floor table had',have.size,'of',N,'floors; added',add.length,'typical rows');
+        }
+      }
+    }catch(e){}
     // Anything the plans didn't give (net SF, perimeter, counts) gets an NYC
     // rule-of-thumb value so no line prices at $0 — flagged on the review screen.
     const keep=[];
