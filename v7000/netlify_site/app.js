@@ -305,7 +305,7 @@ async function extractFromImages(pages,onProg){
 
 // Focused pass for the per-floor area table: the general extraction often returns only some rows.
 const FLOOR_TABLE_PROMPT=`This sheet contains a FLOOR AREA table or diagram (rows per level: cellar, each numbered floor, bulkhead/penthouse, etc.; columns such as GROSS, DEDUCTIONS, ZFA, NET).
-List EVERY row for EVERY level, top to bottom, including the cellar and bulkhead. Do not skip or merge rows. If a note says several floors are identical (e.g. "1,2,3,4TH FLOORS"), still return one row per floor.
+List EVERY row for EVERY building level (cellar, 1, 2, 3, 4, bulkhead/penthouse...) top to bottom. Levels/floors only — NOT apartments, units or rooms. Do not skip or merge rows. If a note says several floors are identical (e.g. "1,2,3,4TH FLOORS"), still return one row per floor.
 gross = the GROSS column (or gross area stated for that level) in SF; net = a column explicitly labeled NET (or net floor area) in SF, otherwise null. Ignore total rows.
 Return JSON only: {"floorAreas":[{"name":string,"gross":number|null,"net":number|null}]}`;
 async function refineFloorAreas(merged){
@@ -328,33 +328,38 @@ async function refineFloorAreas(merged){
     }
     return null;
   });
-  outs.forEach(o=>{ if(o&&o.length>best.length) best=o; });
+  const good=outs.filter(o=>o&&o.length>=2).sort((a,b)=>b.length-a.length);
+  if(good.length) best=good[0];            // the focused table pass beats the page-by-page guess (which picked up apartment rows)
   return best.length?best:null;
 }
 
-// Focused elevator count from the proposed floor plans (the general pass often leaves it blank).
-const ELEV_PROMPT=`This is an architectural floor plan. How many passenger/stretcher ELEVATOR CARS (elevator shafts) does this building have, as shown on this plan? Count each shaft labeled or drawn as an elevator. Do NOT count legend entries, "elevator sign" notes, stair or shaft labels, or dumbwaiters. If none are shown return 0.
-Return JSON only: {"elevators":number}`;
-async function countElevators(results){
+// Focused per-floor facts from the proposed floor plans: elevator shafts and dwelling units on that level.
+const ELEV_PROMPT=`This is one architectural floor plan of a building. Answer from what is drawn on THIS sheet only.
+1) elevators: number of ELEVATOR shafts/cars shown (passenger or stretcher). Do NOT count legend entries, "elevator sign" notes, stair or shaft labels, dumbwaiters.
+2) units: number of separate DWELLING UNITS (apartments) on this level, e.g. labels like "UNIT 1A", "UNIT 1B+NYC", "UNIT 3C". Count each distinct unit once. Count 0 if the level has no apartments (cellar storage, amenity only).
+Return JSON only: {"elevators":number,"units":number}`;
+async function countPlanFacts(results){
   const seen=new Set(), cand=[];
   results.forEach(r=>{
     if(!r||r.sheetKind!=='floor_plan'||!r._entry||typeof r._page!=='number') return;
     const k=r._entry.name+'#'+r._page; if(seen.has(k)) return; seen.add(k); cand.push(r);
   });
-  cand.sort((a,b)=>(/1ST|FIRST|CELLAR/i.test(b.floorLabel||'')?1:0)-(/1ST|FIRST|CELLAR/i.test(a.floorLabel||'')?1:0));
-  const outs=await pool(cand.slice(0,2),2,async r=>{
+  cand.length=Math.min(cand.length,6);
+  const outs=await pool(cand,3,async r=>{
     for(let a=0;a<2;a++){
       try{
-        const c=await renderPageCanvas(r._entry,r._page,2800);
+        const c=await renderPageCanvas(r._entry,r._page,2400);
         const j=parseJSON(await callExtractor([{media_type:'image/jpeg',data:c.toDataURL('image/jpeg',0.9).split(',')[1]}],'',ELEV_PROMPT));
-        const v=j&&+j.elevators; if(v>=0&&v<12) return Math.round(v);
+        if(j){ const mult=(typeof r.typicalFloors==='number'&&r.typicalFloors>1&&r.typicalFloors<60)?Math.round(r.typicalFloors):1;
+          return {elev:(+j.elevators>=0&&+j.elevators<12)?Math.round(+j.elevators):null, units:(+j.units>=0&&+j.units<60)?Math.round(+j.units)*mult:null}; }
       }catch(e){}
     }
     return null;
   });
-  const vals=outs.filter(v=>v!=null); return vals.length?Math.max.apply(null,vals):null;
+  let ev=null, un=0, anyU=false;
+  outs.forEach(o=>{ if(!o) return; if(o.elev!=null) ev=Math.max(ev||0,o.elev); if(o.units!=null){ un+=o.units; anyU=true; } });
+  return {elevators:ev, units:anyU&&un>0?un:null};
 }
-
 async function analyzePlans(){
   track('plans_uploaded',{file_count:files.length});
   show('analyzing'); hide('step-1');
@@ -402,9 +407,15 @@ async function analyzePlans(){
         }
       }catch(e){ console.warn('plan count failed',e); }
     }
-    if(!(typeof merged.elevators==='number'&&merged.elevators>0)){
-      if(msg) msg.textContent='Counting elevators…';
-      try{ const ev=await withDeadline(countElevators(results),70000,null); if(ev!=null){ merged.elevators=ev; const i=missing.indexOf('Elevators'); if(i>=0) missing.splice(i,1); } }catch(e){ console.warn('elevator count failed',e); }
+    {
+      if(msg) msg.textContent='Counting elevators and apartments…';
+      try{
+        const pf=await withDeadline(countPlanFacts(results),80000,null);
+        if(pf){
+          if(!(typeof merged.elevators==='number'&&merged.elevators>0)&&pf.elevators!=null){ merged.elevators=pf.elevators; const i=missing.indexOf('Elevators'); if(i>=0) missing.splice(i,1); }
+          if(pf.units!=null&&(!(typeof merged.units==='number'&&merged.units>0)||merged.units<pf.units*0.6||merged.units>pf.units*1.6)){ merged.units=pf.units; const i=missing.indexOf('Units'); if(i>=0) missing.splice(i,1); }
+        }
+      }catch(e){ console.warn('plan facts failed',e); }
     }
     // Sanity rule: every apartment has exactly one entry door. If the count read from the plans/schedule
     // is missing or far from the unit count, trust the unit count (and say so in the console).
