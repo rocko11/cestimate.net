@@ -1324,10 +1324,10 @@ function applyPriceBook(divs,m){
   let hv=[], hvTot=0;
   divs.forEach(d=>d.items.forEach(it=>{
     if(!it) return;
-    if(it._total!=null){ it.qty=1; it.u='LS'; it.p=OWNER_LUMP[it.n]!=null?OWNER_LUMP[it.n]:it._total; it.basis='Lump sum (proforma)'; it.fixed=true; it.src='Proforma $'+Math.round(it.p/1000)+'k'; return; }
+    if(it._total!=null){ it._own=1; it.qty=1; it.u='LS'; it.p=OWNER_LUMP[it.n]!=null?OWNER_LUMP[it.n]:it._total; it.basis='Lump sum (proforma)'; it.fixed=true; it.src='Proforma $'+Math.round(it.p/1000)+'k'; return; }
     if(OWNER_HVAC.includes(it.n)){ hv.push(it); hvTot+=(it.qty||0)*(it.p||0); return; }
     const r=OWNER_RATES[it.n]; if(!r) return;
-    it.fixed=true;
+    it.fixed=true; it._own=1;
     if(r.zero){ it.p=0; it.src=r.zero; return; }
     if(r.lump!=null){ it.qty=1; it.u='LS'; it.p=r.lump; it.basis='Lump sum'; it.src=r.src; return; }
     if(r.drv){ it.qty=drv[r.drv]||0; it.u=r.u; it.p=Math.round(r.tot/PF[r.drv]*100)/100; it.basis=r.basis+' · $'+it.p+'/SF'; it.src=r.src; return; }
@@ -1335,7 +1335,7 @@ function applyPriceBook(divs,m){
   }));
   // HVAC keeps the counted units; prices scaled so the total hits the proforma rate ($1,125k ÷ 79,145 SF)
   const target=1125000/PF.gfa*(m.gfa||0);
-  if(hvTot>0&&target>0){ const f=target/hvTot; hv.forEach(it=>{ it.p=Math.round(it.p*f*100)/100; it.fixed=true; it.src='Proforma HVAC $1,125k (scaled by GFA)'; }); }
+  if(hvTot>0&&target>0){ const f=target/hvTot; hv.forEach(it=>{ it._own=1; it.p=Math.round(it.p*f*100)/100; it.fixed=true; it.src='Proforma HVAC $1,125k (scaled by GFA)'; }); }
   return divs;
 }
 /* Open-data material prices: BLS Producer Price Index by material, change since the month the
@@ -1398,7 +1398,7 @@ function recalc(){
       let lab=hrs*((TRADE_RATE[it.trade]||90)*laborMult);
       if(lab>ext) lab=ext;                    // labor can't exceed the installed price
       let mat=Math.max(ext-lab,0);
-      const pf=(it.custom||o.p!=null)?1:ppiFactor(it.trade);   // user-typed prices are taken as current
+      const pf=(it.custom||it._own||o.p!=null)?1:ppiFactor(it.trade);   // user-typed and proforma (Jul 2026) prices are taken as current
       if(pf!==1){ mat=mat*pf; ext=lab+mat; }
       dtotal+=ext; direct+=ext; matTot+=mat; labTot+=lab; if(!excl) lineCount++;
 
