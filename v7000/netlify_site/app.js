@@ -892,8 +892,9 @@ const PROV_FIELDS={gfa:'m-gfa',nsf:'m-nsf',footprint:'m-footprint',floors:'m-flo
   windows:'m-windows',doorsEntry:'m-doors-entry',doorsStair:'m-doors-stair',doorsInterior:'m-doors-int',hvacCondensers:'m-hvac-cu',
   hvacIndoor:'m-hvac-ah',exhaustFans:'m-exhaust',elevators:'m-elev',excavationDepth:'m-exc-depth',soeLF:'m-soe-lf',underpinningLF:'m-underpin-lf',pileCount:'m-piles'};
 const PROV_REQUIRED=['m-gfa','m-floors','m-units','m-footprint'];
-const PROV_LABEL={plans:'from plans',rule:'rule of thumb',you:'confirmed',missing:'missing'};
-const PROV_COLOR={plans:'#1f7a3a',rule:'#b26a00',you:'#1a3a6b',missing:'#b00020'};
+const PROV_LABEL={plans:'from plans',rule:'rule of thumb',you:'confirmed',missing:'missing',none:'not used'};
+const PROV_COLOR={plans:'#1f7a3a',rule:'#b26a00',you:'#1a3a6b',missing:'#b00020',none:'#8a94a6'};
+const PROV_BLANK={'m-exc-depth':['rule','blank → 12 ft if there is a cellar'],'m-soe-lf':['rule','blank → building perimeter if there is a cellar'],'m-underpin-lf':['none'],'m-piles':['none']};
 window._prov={}; window._provNote={};
 function setProv(id,st,note){
   window._prov[id]=st; if(note) window._provNote[id]=note;
@@ -913,7 +914,7 @@ function tagProvenance(p){
   const rule=(p&&p._rule)||{};
   Object.entries(PROV_FIELDS).forEach(([k,id])=>{
     const v=String(getV(id)||'').trim();
-    if(v===''||+v===0&&id!=='m-piles') setProv(id,'missing');
+    if(v===''||+v===0){ const b=PROV_BLANK[id]; if(b) setProv(id,b[0],b[1]); else setProv(id,'missing'); }
     else if(rule[k]) setProv(id,'rule',rule[k]);
     else setProv(id,'plans');
   });
