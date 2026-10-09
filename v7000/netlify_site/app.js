@@ -2321,6 +2321,23 @@ function cleanDrawing(c){
   }
   g.putImageData(im,0,0); return c;
 }
+// Locate the building on an elevation sheet from ink density: the facade is the widest band of dense
+// linework; dimension strings, level tags and notes beside it are sparse. Returns [x0,y0,x1,y1] fractions.
+function findBuildingBox(page){
+  const W=600,H=Math.max(1,Math.round(page.height*600/page.width)); const c=document.createElement('canvas'); c.width=W; c.height=H;
+  const g=c.getContext('2d'); g.drawImage(page,0,0,W,H); const d=g.getImageData(0,0,W,H).data;
+  const dk=(x,y)=>{const i=(y*W+x)*4; return (d[i]+d[i+1]+d[i+2])/3<160;};
+  const run=(prof)=>{ const n=prof.length, sm=prof.map((v,i)=>{let s=0,k=0; for(let j=Math.max(0,i-4);j<=Math.min(n-1,i+4);j++){s+=prof[j];k++;} return s/k;});
+    const mx=Math.max(...sm); const th=mx*0.35; let best=[0,0],a=-1;
+    for(let i=0;i<=n;i++){ const on=i<n&&sm[i]>=th; if(on&&a<0) a=i; if(!on&&a>=0){ if(i-a>best[1]-best[0]) best=[a,i]; a=-1; } }
+    return best; };
+  const xr=Math.round(W*0.85);   // ignore the title block strip on the right
+  const col=[]; for(let x=0;x<xr;x++){ let k=0; for(let y=0;y<H;y++) if(dk(x,y)) k++; col.push(k/H); }
+  const [cx0,cx1]=run(col); if(cx1-cx0<W*0.12) return null;
+  const row=[]; for(let y=0;y<H;y++){ let k=0; for(let x=cx0;x<cx1;x++) if(dk(x,y)) k++; row.push(k/(cx1-cx0)); }
+  const [ry0,ry1]=run(row); if(ry1-ry0<H*0.15) return null;
+  return [cx0/W,ry0/H,cx1/W,ry1/H];
+}
 async function elevationJob(body,cap,label){
   const r=await fetch('/.netlify/functions/render-elevation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const d=await r.json().catch(()=>({}));
@@ -2336,8 +2353,9 @@ async function elevationJob(body,cap,label){
 }
 async function renderFromElevation(src,box,m,boro,wt,desc,cap){
   const page=await renderPageCanvas(src.entry,src.pi,2400);
-  let [x0,y0,x1,y1]=(box&&box.length===4&&box.every(v=>v>=0&&v<=1)&&box[2]>box[0]&&box[3]>box[1])?box:[0.03,0.03,0.80,0.92];
-  const pad=0.01; x0=Math.max(0,x0-pad); y0=Math.max(0,y0-pad); x1=Math.min(1,x1+pad); y1=Math.min(1,y1-0.01);
+  let det=null; try{ det=findBuildingBox(page); }catch(e){}
+  let [x0,y0,x1,y1]=det||((box&&box.length===4&&box.every(v=>v>=0&&v<=1)&&box[2]>box[0]&&box[3]>box[1])?box:[0.03,0.03,0.80,0.92]);
+  const pad=0.012; x0=Math.max(0,x0-pad); y0=Math.max(0,y0-pad); x1=Math.min(1,x1+pad); y1=Math.min(1,y1+pad);
   const sx=Math.round(x0*page.width), sy=Math.round(y0*page.height), sw=Math.round((x1-x0)*page.width), sh=Math.round((y1-y0)*page.height);
   if(sw<200||sh<200) return null;
   const sc=Math.min(1,1440/Math.max(sw,sh));
@@ -2347,10 +2365,10 @@ async function renderFromElevation(src,box,m,boro,wt,desc,cap){
   const image=c.toDataURL('image/jpeg',0.92);
   const look=(desc?('Facade as drawn: '+desc+' '):'')+'Real materials with texture (brick, stucco, metal panel, glass as appropriate), glass with reflections and interior depth, real blue sky with soft clouds, concrete sidewalk and street, street trees, neighboring '+boro+' row buildings at the sides, soft daylight.';
   // Pass 1 — FLUX Canny: geometry locked to the drawing's lines (floors, window grid, setbacks).
-  const geo=await elevationJob({mode:'canny',image,prompt:'Architectural photograph of a new '+m.floors+'-story '+wt+' building in '+boro+', New York City, exactly following the lines of the control image: outline, floor lines, every window and door opening, balconies, setbacks and roofline. '+look+' No text, letters, dimension lines or annotations.'},cap,'Pass 1/2 \u2014 locking geometry to the elevation\u2026');
+  const geo=await elevationJob({mode:'canny',image,prompt:'Professional real-estate photograph (DSLR, 35mm, f/8, natural daylight) of a newly completed '+m.floors+'-story '+wt+' building in '+boro+', New York City, shot straight-on from across the street. The building exactly follows the lines of the control image: its outline, every floor line, every window and door opening, balconies, hatched brick areas, setbacks and roofline. Photographic realism, not a drawing or illustration. '+look+' No text, letters, dimension lines or annotations.'},cap,'Rendering from the elevation drawing\u2026');
   // Pass 2 — FLUX Kontext: make it a real photograph without moving anything.
   let out=geo;
-  try{
+  if(window.RENDER_PHOTO_PASS) try{
     out=await elevationJob({mode:'kontext',image:geo,prompt:'Make this a real DSLR photograph of the finished building. Keep every floor, window, balcony, setback, roofline and storefront exactly where it is — do not add, remove or move anything; the building must keep exactly '+m.floors+' stories. '+look+' Remove any text, letters, labels or lines that are not part of the building.'},cap,'Pass 2/2 \u2014 making it photographic\u2026');
   }catch(e){ console.warn('photo pass failed, using pass 1',e); }
   try{ const b=await (await fetch(out)).blob(); return await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=()=>res(out); fr.readAsDataURL(b); }); }catch(e){ return out; }
