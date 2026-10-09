@@ -2227,7 +2227,7 @@ async function generateAIImage(){
   let sampled=allImgs;
   const pgText=p=>{ const im=p.entry.images[p.pi]; return String((im&&im.text)||'').toUpperCase(); };
   const front=allImgs.filter(p=>/FRONT ELEVATION|STREET ELEVATION|NORTH ELEVATION \(FRONT\)/.test(pgText(p)));
-  if(front.length){ sampled=front.slice(0,2); }      // the sheet title says it — no guessing between front and side elevations
+  if(front.length){ front.forEach(p=>p.titled=true); sampled=front.slice(0,2); }      // the sheet title says it — no guessing between front and side elevations
   else if(allImgs.length>SAMPLE_N){
     sampled=[];
     for(let i=0;i<SAMPLE_N;i++) sampled.push(allImgs[Math.round(i*(allImgs.length-1)/(SAMPLE_N-1))]);
@@ -2342,15 +2342,16 @@ function findBuildingBox(page){
   const W=600,H=Math.max(1,Math.round(page.height*600/page.width)); const c=document.createElement('canvas'); c.width=W; c.height=H;
   const g=c.getContext('2d'); g.drawImage(page,0,0,W,H); const d=g.getImageData(0,0,W,H).data;
   const dk=(x,y)=>{const i=(y*W+x)*4; return (d[i]+d[i+1]+d[i+2])/3<160;};
-  const run=(prof)=>{ const n=prof.length, sm=prof.map((v,i)=>{let s=0,k=0; for(let j=Math.max(0,i-4);j<=Math.min(n-1,i+4);j++){s+=prof[j];k++;} return s/k;});
-    const mx=Math.max(...sm); const th=mx*0.35; let best=[0,0],a=-1;
-    for(let i=0;i<=n;i++){ const on=i<n&&sm[i]>=th; if(on&&a<0) a=i; if(!on&&a>=0){ if(i-a>best[1]-best[0]) best=[a,i]; a=-1; } }
+  // longest run above a threshold, tolerating short gaps (floor lines, glazing)
+  const run=(prof,th,gap)=>{ const n=prof.length; const sm=prof.map((v,i)=>{let s=0,k=0; for(let j=Math.max(0,i-6);j<=Math.min(n-1,i+6);j++){s+=prof[j];k++;} return s/k;});
+    if(th==null){ const srt=[...sm].sort((p,q)=>q-p); th=srt[Math.floor(n*0.15)]*0.45; }
+    let best=[0,0],a=-1,miss=0; for(let i=0;i<=n;i++){ const on=i<n&&sm[i]>=th; if(on){ if(a<0)a=i; miss=0; } else if(a>=0){ miss++; if(miss>gap||i===n){ const e=i-miss+1; if(e-a>best[1]-best[0]) best=[a,e]; a=-1; miss=0; } } }
     return best; };
-  const xr=Math.round(W*0.85);   // ignore the title block strip on the right
+  const xr=Math.round(W*0.85);   // ignore the title-block strip on the right
   const col=[]; for(let x=0;x<xr;x++){ let k=0; for(let y=0;y<H;y++) if(dk(x,y)) k++; col.push(k/H); }
-  const [cx0,cx1]=run(col); if(cx1-cx0<W*0.12) return null;
+  const [cx0,cx1]=run(col,null,4); if(cx1-cx0<W*0.12) return null;
   const row=[]; for(let y=0;y<H;y++){ let k=0; for(let x=cx0;x<cx1;x++) if(dk(x,y)) k++; row.push(k/(cx1-cx0)); }
-  const [ry0,ry1]=run(row); if(ry1-ry0<H*0.15) return null;
+  const [ry0,ry1]=run(row,0.04,12); if(ry1-ry0<H*0.2) return null;
   return [cx0/W,ry0/H,cx1/W,ry1/H];
 }
 async function elevationJob(body,cap,label){
@@ -2368,8 +2369,10 @@ async function elevationJob(body,cap,label){
 }
 async function renderFromElevation(src,box,m,boro,wt,desc,cap){
   const page=await renderPageCanvas(src.entry,src.pi,2400);
-  // Crop: the AI's box around the front elevation; otherwise the sheet minus the title-block strip.
-  let [x0,y0,x1,y1]=(box&&box.length===4&&box.every(v=>v>=0&&v<=1)&&box[2]-box[0]>0.15&&box[3]-box[1]>0.15)?box:[0.02,0.04,0.84,0.96];
+  // Crop tightly to the building: on a sheet with one elevation the ink-density box is exact; otherwise use the AI's box.
+  let det=null; try{ det=findBuildingBox(page); }catch(e){}
+  const aiBox=(box&&box.length===4&&box.every(v=>v>=0&&v<=1)&&box[2]-box[0]>0.15&&box[3]-box[1]>0.15)?box:null;
+  let [x0,y0,x1,y1]=(src.titled&&det)?det:(aiBox||det||[0.02,0.04,0.84,0.96]);
   const pad=0.012; x0=Math.max(0,x0-pad); y0=Math.max(0,y0-pad); x1=Math.min(1,x1+pad); y1=Math.min(1,y1+pad);
   const sx=Math.round(x0*page.width), sy=Math.round(y0*page.height), sw=Math.round((x1-x0)*page.width), sh=Math.round((y1-y0)*page.height);
   if(sw<200||sh<200) return null;
@@ -2379,11 +2382,13 @@ async function renderFromElevation(src,box,m,boro,wt,desc,cap){
   try{ cleanDrawing(c); }catch(e){}
   const image=c.toDataURL('image/jpeg',0.92);
   const look=(desc?('Facade as drawn: '+desc+' '):'')+'Real materials with texture (brick, stucco, metal panel, glass as appropriate), glass with reflections and interior depth, real blue sky with soft clouds, concrete sidewalk and street, street trees, neighboring '+boro+' row buildings at the sides, soft daylight.';
-  // One pass — FLUX Kontext turns the drawing itself into a photograph (realistic, drops the annotations).
-  // (Edge-following Canny kept the lines but looked like a coloured drawing and copied labels, so it is off.)
-  const out=await elevationJob({mode:'kontext',image,prompt:'Turn this architectural elevation drawing into a real DSLR photograph of the finished building, taken straight-on from across the street. '+
-    'Keep the building exactly as drawn: '+m.floors+' stories above grade, the same window grid and number of windows on every floor, the same balconies, setbacks, roofline, bulkhead and ground-floor storefront. Do not add or remove floors or windows. '+
-    look+' Remove ALL text, labels, notes, dimension lines, grid lines, level markers and title-block elements \u2014 the photo must contain no writing.'},cap,'Rendering the elevation as a photograph\u2026');
+  // Pass 1 — FLUX Canny locks the geometry to the drawing (floors, window grid, balconies, setbacks).
+  const geo=await elevationJob({mode:'canny',image,prompt:'Photorealistic architectural photograph, straight-on street view, of a newly built '+m.floors+'-story '+wt+' building in '+boro+', New York City, exactly following the control image lines: outline, every floor line, every window and door, balconies, setbacks, roofline and bulkhead. Hatched areas in the drawing are brick. '+look+' No text, no letters, no dimension lines.'},cap,'Step 1/2 \u2014 tracing the elevation\u2026');
+  // Pass 2 — FLUX Kontext keeps everything in place and turns it into a real photo (removes leftover lines/lettering).
+  let out=geo;
+  try{
+    out=await elevationJob({mode:'kontext',image:geo,prompt:'Make this a real photograph of this exact building. Keep every floor, every window, every balcony, the setbacks and the rooftop bulkhead exactly where they are \u2014 same '+m.floors+' stories, same window count. Change only the rendering style to a real DSLR photo: realistic materials and lighting, real sky, sidewalk and street. Remove all text, numbers, labels, dimension lines and thin drawing lines.'},cap,'Step 2/2 \u2014 making it photographic\u2026');
+  }catch(e){ console.warn('photo pass failed, using step 1',e); }
   try{ const b=await (await fetch(out)).blob(); return await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=()=>res(out); fr.readAsDataURL(b); }); }catch(e){ return out; }
 }
 function parseRenderFeatures(desc,m){
