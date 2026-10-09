@@ -33,7 +33,7 @@ exports.handler = async (event) => {
       body: JSON.stringify({ input: {
         control_image: image,
         prompt: String(prompt || '').slice(0, 1800),
-        steps: 40, guidance: 25, output_format: 'jpg', safety_tolerance: 2, prompt_upsampling: false,
+        steps: 50, guidance: 40, output_format: 'jpg', safety_tolerance: 2, prompt_upsampling: false,
       } }),
     });
     const d = await r.json();

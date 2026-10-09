@@ -2311,17 +2311,17 @@ async function generateAIImage(){
 async function renderFromElevation(src,box,m,boro,wt,desc,cap){
   const page=await renderPageCanvas(src.entry,src.pi,2400);
   let [x0,y0,x1,y1]=(box&&box.length===4&&box.every(v=>v>=0&&v<=1)&&box[2]>box[0]&&box[3]>box[1])?box:[0.03,0.03,0.80,0.92];
-  const pad=0.015; x0=Math.max(0,x0-pad); y0=Math.max(0,y0-pad); x1=Math.min(1,x1+pad); y1=Math.min(1,y1+pad);
+  const pad=0.01; x0=Math.max(0,x0-pad); y0=Math.max(0,y0-pad); x1=Math.min(1,x1+pad); y1=Math.min(1,y1-0.01);
   const sx=Math.round(x0*page.width), sy=Math.round(y0*page.height), sw=Math.round((x1-x0)*page.width), sh=Math.round((y1-y0)*page.height);
   if(sw<200||sh<200) return null;
   const sc=Math.min(1,1440/Math.max(sw,sh));
   const c=document.createElement('canvas'); c.width=Math.round(sw*sc); c.height=Math.round(sh*sc);
   const g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,c.width,c.height); g.drawImage(page,sx,sy,sw,sh,0,0,c.width,c.height);
   const image=c.toDataURL('image/jpeg',0.9);
-  const prompt='Photorealistic architectural photograph of the building shown in this elevation drawing, exactly following its outline, floor lines, window and door openings, balconies, setbacks and roofline. '+
+  const prompt='A real photograph taken with a DSLR camera (35mm lens, f/8) of a finished building in New York City — not a drawing, not an illustration, not a diagram. The building exactly follows the outline, floor lines, window and door openings, balconies, setbacks and roofline of the control image. '+
     'A new '+m.floors+'-story '+wt+' building in '+boro+', New York City, seen straight-on at eye level from across the street. '+(desc?('Facade as drawn: '+desc+' '):'')+
     'Real materials with texture (brick, stucco, metal panel, glass as appropriate), reflective glass windows with interior depth, storefront at street level if drawn, sidewalk, street trees, neighboring Brooklyn row buildings at the sides, soft daylight, high detail, professional real-estate rendering. '+
-    'No text, no dimension lines, no annotations, no grid lines, no people in the foreground.';
+    'Real sky with soft clouds, real asphalt street and concrete sidewalk in the foreground, depth and shadows. Absolutely no text, letters, labels, dimension lines, annotations or grid lines anywhere in the image.';
   const r=await fetch('/.netlify/functions/render-elevation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image,prompt})});
   const d=await r.json().catch(()=>({}));
   if(!r.ok||!d.id) throw new Error(d.error||('render-elevation '+r.status));
