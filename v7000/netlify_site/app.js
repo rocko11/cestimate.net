@@ -879,11 +879,52 @@ function fillMetrics(p){
   Object.keys(FIELD_LABELS).forEach(k=>{
     if(p[k]===-1){ setV(ID_MAP[k],''); unreadable.push(FIELD_LABELS[k]); }
   });
+  tagProvenance(p);
   const w=document.getElementById('unreadable-warn');
   if(w){ if(unreadable.length){ w.innerHTML='<strong>\u26a0 AI saw these schedules but could not read them clearly \u2014 enter manually:</strong> '+unreadable.join(', '); w.classList.remove('hidden'); }
          else { w.classList.add('hidden'); } }
 }
 
+/* Where every number came from — "plans" (read from the drawings), "rule" (filled by a rule of thumb),
+   "you" (typed or confirmed by the user) or "missing". Missing core facts block pricing; rule values
+   are listed on the estimate as unconfirmed assumptions. Nothing is silently turned into a guess. */
+const PROV_FIELDS={gfa:'m-gfa',nsf:'m-nsf',footprint:'m-footprint',floors:'m-floors',units:'m-units',f2f:'m-f2f',perimeter:'m-perim',
+  windows:'m-windows',doorsEntry:'m-doors-entry',doorsStair:'m-doors-stair',doorsInterior:'m-doors-int',hvacCondensers:'m-hvac-cu',
+  hvacIndoor:'m-hvac-ah',exhaustFans:'m-exhaust',elevators:'m-elev',excavationDepth:'m-exc-depth',soeLF:'m-soe-lf',underpinningLF:'m-underpin-lf',pileCount:'m-piles'};
+const PROV_REQUIRED=['m-gfa','m-floors','m-units','m-footprint'];
+const PROV_LABEL={plans:'from plans',rule:'rule of thumb',you:'confirmed',missing:'missing'};
+const PROV_COLOR={plans:'#1f7a3a',rule:'#b26a00',you:'#1a3a6b',missing:'#b00020'};
+window._prov={}; window._provNote={};
+function setProv(id,st,note){
+  window._prov[id]=st; if(note) window._provNote[id]=note;
+  const inp=document.getElementById(id); if(!inp) return;
+  let chip=document.getElementById('prov-'+id);
+  if(!chip){ chip=document.createElement('span'); chip.id='prov-'+id; chip.style.cssText='display:inline-block;margin-left:6px;font-size:10px;font-weight:600;border-radius:8px;padding:1px 6px;color:#fff;vertical-align:middle;cursor:default';
+    inp.insertAdjacentElement('afterend',chip);
+    inp.addEventListener('input',()=>{ setProv(id,String(inp.value).trim()===''?'missing':'you'); });
+    if(st==='rule') chip.title='Click to confirm this value'; }
+  chip.textContent=PROV_LABEL[st]; chip.style.background=PROV_COLOR[st];
+  chip.title=(st==='rule'?((window._provNote[id]||'')+' — click to confirm'):(st==='missing'?'Not found on the plans — enter it':''));
+  chip.style.cursor=st==='rule'?'pointer':'default';
+  chip.onclick=st==='rule'?()=>setProv(id,'you'):null;
+}
+function tagProvenance(p){
+  window._prov={}; window._provNote={};
+  const rule=(p&&p._rule)||{};
+  Object.entries(PROV_FIELDS).forEach(([k,id])=>{
+    const v=String(getV(id)||'').trim();
+    if(v===''||+v===0&&id!=='m-piles') setProv(id,'missing');
+    else if(rule[k]) setProv(id,'rule',rule[k]);
+    else setProv(id,'plans');
+  });
+  // counts the app derived from a rule even though a number came back (e.g. entry doors = units)
+  if(planInfo&&planInfo.doors==='none'){ ['m-doors-stair','m-doors-int'].forEach(id=>{ if(window._prov[id]==='plans') setProv(id,'rule','not counted on the plans'); }); }
+}
+function provIssues(){
+  const miss=PROV_REQUIRED.filter(id=>!(+getV(id)>0));
+  const rule=Object.keys(window._prov).filter(id=>window._prov[id]==='rule');
+  return {miss,rule};
+}
 function clearMetrics(){
   planInfo=null;
   ['m-name','m-job','m-gfa','m-nsf','m-footprint','m-floors','m-units','m-f2f','m-perim',
@@ -897,6 +938,7 @@ function manualEntry(){
   if(el) el.innerHTML='<span class="ai-badge">Manual</span> &nbsp;Enter your building\u2019s values below, then run the takeoff. Tip: use \u201cLoad 124 Washington example\u201d on the upload screen if you just want a sample.';
   document.querySelectorAll('#step-2 .field.ai').forEach(f=>f.classList.remove('ai'));
   hide('step-1'); hide('analyzing'); show('step-2'); setChip(2);
+  window._prov={}; window._provNote={};
 }
 
 /* One-click load of the known, verified 124 Washington Avenue values, so the
@@ -1314,11 +1356,13 @@ const OWNER_HVAC=['Outdoor condensing units','Indoor AC units (1 per room)','Exh
 const OWNER_LUMP={'Landscaping':35000};
 function priceBook(){ return (document.getElementById('price-book')||{}).value||'market'; }
 function setPriceBook(v){
-  if(v==='owner'){ setV('gc-pct',4); setV('op-pct',0); setV('cont-pct',5); }   // CM fee 4% (proforma $578k ÷ $14.45M), no GC O&P, 5% contingency
+  if(v==='learned'&&!(window.learnedBookCount&&window.learnedBookCount())){ if(window.openPriceBook) window.openPriceBook(); }
+  if(v==='owner'||v==='learned'){ setV('gc-pct',4); setV('op-pct',0); setV('cont-pct',5); }   // CM fee 4% (proforma $578k ÷ $14.45M), no GC O&P, 5% contingency
   else { setV('gc-pct',8); setV('op-pct',12); setV('cont-pct',15); }
   recalc();
 }
 function applyPriceBook(divs,m){
+  if(priceBook()==='learned') return window.applyLearnedBook?window.applyLearnedBook(divs,m):divs;
   if(priceBook()!=='owner') return divs;
   const drv={gfa:m.gfa,fp:m.footprint};
   let hv=[], hvTot=0;
@@ -1599,14 +1643,15 @@ async function estimateFromPrompt(){
 // filled with standard NYC multifamily ratios. Returns the list of what was assumed.
 function fillDescriptionDefaults(p,keep){
   const a=[]; const ok=v=>typeof v==='number'&&v>0; keep=keep||[];
-  const set=(k,v,label)=>{ if(!keep.includes(k)&&!ok(p[k])&&v>0){ p[k]=Math.round(v); a.push(label+' '+Math.round(v).toLocaleString()); } };
+  p._rule=p._rule||{};
+  const set=(k,v,label)=>{ if(!keep.includes(k)&&!ok(p[k])&&v>0){ p[k]=Math.round(v); p._rule[k]=label; a.push(label+' '+Math.round(v).toLocaleString()); } };
   if(!ok(p.floors)) set('floors',ok(p.gfa)&&ok(p.footprint)?p.gfa/p.footprint:0,'floors');
   if(!ok(p.gfa)&&ok(p.footprint)&&ok(p.floors)) set('gfa',p.footprint*p.floors,'GFA (SF)');
   if(!ok(p.footprint)&&ok(p.gfa)&&ok(p.floors)) set('footprint',p.gfa/p.floors,'footprint (SF)');
   const U=ok(p.units)?p.units:0, F=ok(p.floors)?p.floors:0;
   set('nsf',ok(p.gfa)?p.gfa*0.80:0,'net SF (80% of GFA)');
   set('perimeter',ok(p.footprint)?Math.sqrt(p.footprint)*4:0,'perimeter (LF)');
-  if(!ok(p.f2f)){ p.f2f=10.5; a.push("floor-to-floor 10.5'"); }
+  if(!ok(p.f2f)){ p.f2f=10.5; p._rule.f2f="floor-to-floor 10.5'"; a.push("floor-to-floor 10.5'"); }
   set('windows',U*5,'windows (5/unit)');
   set('doorsEntry',U?U+2:0,'entry doors (1/unit + 2)');
   set('doorsStair',F?F*2+(p.cellar===1?2:0):0,'stair doors (2/floor)');
@@ -2005,7 +2050,28 @@ function updateFloorTotals(){
 }
 
 /* ============ NAV / HELPERS ============ */
-function goToResults(){ hide('step-2'); show('step-3'); setChip(3); renderWages(); recalc(); }
+function goToResults(){
+  const iss=provIssues(); const box=document.getElementById('prov-block');
+  if(iss.miss.length){
+    const names=iss.miss.map(id=>{ const l=document.querySelector('label[for="'+id+'"]'); return l?l.textContent.trim():id.replace('m-',''); });
+    if(box){ box.innerHTML='<strong>Can\u2019t price yet \u2014 these were not found on the plans:</strong> '+names.join(', ')+'. Enter them (they are marked <span style="color:#b00020;font-weight:600">missing</span>) and run again.'; box.classList.remove('hidden'); box.scrollIntoView({block:'center'}); }
+    iss.miss.forEach(id=>{ const e=document.getElementById(id); if(e) e.style.outline='2px solid #b00020'; });
+    return;
+  }
+  if(box) box.classList.add('hidden');
+  hide('step-2'); show('step-3'); setChip(3); renderWages(); recalc(); renderAssumptions();
+}
+function renderAssumptions(){
+  const el=document.getElementById('assumptions'); if(!el) return;
+  const m=metrics(); const L=[];
+  provIssues().rule.forEach(id=>{ const l=document.querySelector('label[for="'+id+'"]'); L.push((l?l.textContent.trim():id)+' = '+getV(id)+' ('+(window._provNote[id]||'rule of thumb')+')'); });
+  if(!m.excDepthSet&&m.cellar) L.push('Excavation depth '+m.excDepth+' ft (default for a cellar)');
+  if(!m.soeSet&&m.soeLF>0) L.push('Shoring '+Math.round(m.soeLF)+' LF (= building perimeter)');
+  if(!(+getV('m-perim')>0)) L.push('Perimeter '+Math.round(Math.sqrt(m.footprint)*4)+' LF (4\u00d7\u221afootprint)');
+  if(!L.length){ el.classList.add('hidden'); return; }
+  el.innerHTML='<strong>'+L.length+' unconfirmed assumption'+(L.length>1?'s':'')+' in this estimate</strong> \u2014 confirm or correct them on the previous step:<ul style="margin:4px 0 0 18px">'+L.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>';
+  el.classList.remove('hidden');
+}
 function backToVerify(){ hide('step-3'); show('step-2'); setChip(2); }
 function backToUpload(){ hide('step-2'); show('step-1'); setChip(1); }
 function setChip(n){
@@ -2734,5 +2800,6 @@ function renderPlumbing(){
 
 /* Wall-measuring tool (walls.js). Optional: if the file is missing the app falls back to the factor. */
 loadPpi();
+loadScript('pricebook.js').catch(function(e){ console.warn('pricebook.js not loaded', e); });
 loadScript('dxf.js').catch(function(e){ console.warn('dxf.js not loaded', e); });
 loadScript('walls.js').catch(function(e){ console.warn('walls.js not loaded — wall measuring unavailable', e); });

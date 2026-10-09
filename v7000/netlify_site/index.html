@@ -230,6 +230,7 @@
 
   <div class="actions">
     <button class="btn" onclick="backToUpload()">← Re-upload</button>
+    <div id="prov-block" class="note err hidden" style="margin-bottom:.6rem"></div>
     <button class="btn btn-primary" onclick="goToResults()">Run takeoff →</button>
   </div>
 </div>
@@ -260,6 +261,7 @@
 
   <div class="section">
     <div id="unreadable-warn" class="note err hidden" style="margin-bottom:.75rem"></div>
+    <div id="assumptions" class="note hidden" style="margin-bottom:.75rem;border-left:4px solid #b26a00"></div>
 
     <div id="nsf-warn" class="note warn hidden"><strong>Net SF is not set.</strong> The plans didn&#8217;t state it and nothing is assumed &#8212; net-area-based lines (finishes, interior demo) are priced at 0 until you enter Net SF or complete the floor-by-floor table.</div>
 
@@ -325,7 +327,9 @@
       <select id="price-book" onchange="setPriceBook(this.value)" style="margin-left:8px">
         <option value="market">Market (subcontracted, GC markup)</option>
         <option value="owner">P National proforma (self-performed GC)</option>
+        <option value="learned">My past budgets (imported)</option>
       </select>
+      <button class="btn" type="button" style="margin-left:8px" onclick="openPriceBook()">📒 Import past budget</button>
     </div>
     <div class="cont-row">
       <span class="l">GC %</span><input id="gc-pct" type="number" value="8" oninput="recalc()">
@@ -441,7 +445,7 @@ window.addEventListener('error',function(e){
   if(el){ el.textContent='Script error: '+(e.message||'unknown')+'  — please report this.'; el.classList.remove('hidden'); }
 });
 </script>
-<script src="app.js?v=20261009-e"></script>
+<script src="app.js?v=20261009-f"></script>
 
 <!-- 3D RENDERING MODAL -->
 <div id="rendering-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,20,38,.93);overflow:auto;">
