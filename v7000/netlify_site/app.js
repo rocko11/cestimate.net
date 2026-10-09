@@ -2247,7 +2247,7 @@ async function generateAIImage(){
     // page as a real image reference for generation, not just a text summary.
     const prompt='These are '+planPages.length+' sample pages (numbered 1 to '+planPages.length+' in the order given) from architectural plans for a '+m.floors+'-story, '+(m.units||0)+'-unit '+wt+' multifamily building in '+boro+', NYC ('+Math.round(m.gfa||0).toLocaleString()+' SF GFA). '+
       'Find the page that shows an exterior building ELEVATION — a front/street-facing view of the full facade (not a floor plan, not a section, not a site plan), usually labeled "ELEVATION". '+
-      'Respond with ONLY compact JSON, no markdown: {"elevationPageNumber": <1-based number of that page, or null if none of these sampled pages show one>, "elevationBox": [x0,y0,x1,y1] — the box around the single main FRONT/street elevation drawing on that page as fractions 0-1 of the page width/height (exclude the title block, notes, legends and other drawings), "description": "3-4 sentences describing the facade exactly as drawn — material, window size/pattern, cornice/parapet, entrance, whether balconies are shown and where, setbacks. Base this only on what is visible, and explicitly say \'no balconies shown\' if none appear."}';
+      'Respond with ONLY compact JSON, no markdown: {"elevationPageNumber": <1-based number of that page, or null if none of these sampled pages show one>, "elevationBox": [x0,y0,x1,y1] — the box around the single main FRONT/street elevation drawing on that page as fractions 0-1 of the page width/height (exclude the title block, notes, legends and other drawings), "description": "3-4 sentences describing the facade exactly as drawn — material of each zone (hatched = brick, plain/un-hatched = light smooth panel; say which zones are which, e.g. base, left upper, right upper), window size/pattern, cornice/parapet, entrance, whether balconies are shown and where, setbacks. Base this only on what is visible, and explicitly say \'no balconies shown\' if none appear."}';
     try{
       const resp=await postProxy({parts:planPages,prompt});
       if(resp.ok){
@@ -2373,7 +2373,7 @@ async function renderFromElevation(src,box,m,boro,wt,desc,cap){
   let det=null; try{ det=findBuildingBox(page); }catch(e){}
   const aiBox=(box&&box.length===4&&box.every(v=>v>=0&&v<=1)&&box[2]-box[0]>0.15&&box[3]-box[1]>0.15)?box:null;
   let [x0,y0,x1,y1]=(src.titled&&det)?det:(aiBox||det||[0.02,0.04,0.84,0.96]);
-  const pad=0.012; x0=Math.max(0,x0-pad); y0=Math.max(0,y0-pad); x1=Math.min(1,x1+pad); y1=Math.min(1,y1+pad);
+  const pad=0.012; x0=Math.max(0,x0-pad); y0=Math.max(0,y0-pad-0.05); /* extra headroom so the rooftop bulkhead is never cut */ x1=Math.min(1,x1+pad); y1=Math.min(1,y1+pad);
   const sx=Math.round(x0*page.width), sy=Math.round(y0*page.height), sw=Math.round((x1-x0)*page.width), sh=Math.round((y1-y0)*page.height);
   if(sw<200||sh<200) return null;
   const sc=Math.min(1,1440/Math.max(sw,sh));
@@ -2383,11 +2383,11 @@ async function renderFromElevation(src,box,m,boro,wt,desc,cap){
   const image=c.toDataURL('image/jpeg',0.92);
   const look=(desc?('Facade as drawn: '+desc+' '):'')+'Real materials with texture (brick, stucco, metal panel, glass as appropriate), glass with reflections and interior depth, real blue sky with soft clouds, concrete sidewalk and street, street trees, neighboring '+boro+' row buildings at the sides, soft daylight.';
   // Pass 1 — FLUX Canny locks the geometry to the drawing (floors, window grid, balconies, setbacks).
-  const geo=await elevationJob({mode:'canny',image,prompt:'Photorealistic architectural photograph, straight-on street view, of a newly built '+m.floors+'-story '+wt+' building in '+boro+', New York City, exactly following the control image lines: outline, every floor line, every window and door, balconies, setbacks, roofline and bulkhead. Hatched areas in the drawing are brick. '+look+' No text, no letters, no dimension lines.'},cap,'Step 1/2 \u2014 tracing the elevation\u2026');
+  const geo=await elevationJob({mode:'canny',image,prompt:'Photorealistic architectural photograph, straight-on street view, of a newly built '+m.floors+'-story '+wt+' building in '+boro+', New York City, exactly following the control image lines: outline, every floor line, every window and door, balconies, setbacks, roofline and bulkhead. Hatched areas in the drawing are brick; plain un-hatched wall areas are a light off-white or light-gray smooth panel/stucco (not dark); large open rectangles at street level are glass storefronts. '+look+' No text, no letters, no dimension lines.'},cap,'Step 1/2 \u2014 tracing the elevation\u2026');
   // Pass 2 — FLUX Kontext keeps everything in place and turns it into a real photo (removes leftover lines/lettering).
   let out=geo;
   try{
-    out=await elevationJob({mode:'kontext',image:geo,prompt:'Make this a real photograph of this exact building. Keep every floor, every window, every balcony, the setbacks and the rooftop bulkhead exactly where they are \u2014 same '+m.floors+' stories, same window count. Change only the rendering style to a real DSLR photo: realistic materials and lighting, real sky, sidewalk and street. Remove all text, numbers, labels, dimension lines and thin drawing lines.'},cap,'Step 2/2 \u2014 making it photographic\u2026');
+    out=await elevationJob({mode:'kontext',image:geo,prompt:'Make this a real photograph of this exact building. Keep every floor, every window, every balcony, the setbacks and the rooftop bulkhead exactly where they are \u2014 same '+m.floors+' stories, same window count. Change only the rendering style to a real DSLR photo: realistic materials and lighting, real sky, sidewalk and street. Materials exactly as drawn: hatched wall = brick, plain un-hatched wall = light off-white/light-gray smooth panel, street-level openings = clear glass storefronts and doors.'+(desc?(' '+desc):'')+' Remove all text, numbers, labels, dimension lines and thin drawing lines.'},cap,'Step 2/2 \u2014 making it photographic\u2026');
   }catch(e){ console.warn('photo pass failed, using step 1',e); }
   try{ const b=await (await fetch(out)).blob(); return await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=()=>res(out); fr.readAsDataURL(b); }); }catch(e){ return out; }
 }
