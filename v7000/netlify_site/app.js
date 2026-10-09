@@ -421,7 +421,8 @@ async function analyzePlans(){
     const {merged,missing}=mergeExtractions(results);
     if(msg) msg.textContent='Reading floor areas, doors, windows, elevators & units in parallel…';
     const blank=k=>merged[k]==null||merged[k]===-1;
-    const need={doors:['doorsEntry','doorsStair','doorsInterior'].every(blank), windows:blank('windows'), ac:blank('hvacIndoor')};
+    const U0=(typeof merged.units==='number'&&merged.units>5)?merged.units:0;   // a schedule that lists fewer entry doors/windows than there are apartments lists TYPES, not counts: count from the plans instead
+    const need={doors:['doorsEntry','doorsStair','doorsInterior'].every(blank)||(U0>0&&(+merged.doorsEntry||0)<U0*0.6), windows:blank('windows')||(U0>0&&(+merged.windows||0)<U0), ac:blank('hvacIndoor')};
     planInfo={doors:need.doors?'none':'schedule',windows:need.windows?'none':'schedule',ac:need.ac?'none':'schedule',sheets:[]};
     const tFA=withDeadline(refineFloorAreas(merged),150000,null).catch(e=>{console.warn('floor area refine failed',e);return null;});
     const tPC=(need.doors||need.windows||need.ac)?withDeadline(countFromPlans(results,msg,sub),150000,{sheets:[]}).catch(e=>{console.warn('plan count failed',e);return {sheets:[]};}):Promise.resolve({sheets:[]});
