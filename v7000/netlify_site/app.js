@@ -1292,35 +1292,23 @@ const OWNER_RATES={
   'Exterior facade (new skin, excl. windows)':{p:26,src:'Proforma façade $750k'},
   'Air/vapor barrier & insulation':{p:3,src:'Proforma foam insulation $96k'},
   // footprint
-  'Excavation & soil export':{drv:'fp',tot:350000,u:'SF',basis:'Footprint SF (shoring + excavation)',src:'Proforma shoring/excavation $350k'},
-  'Support of excavation (SOE) — soldier piles & lagging':{zero:'in shoring/excavation line'},
-  'Foundation (footings, mat, walls)':{drv:'fp',tot:550000,u:'SF',basis:'Footprint SF',src:'Proforma foundation $550k'},
   'Below-grade waterproofing':{drv:'fp',tot:375000,u:'SF',basis:'Footprint SF',src:'Proforma demolition & waterproofing $375k'},
   'Roofing membrane':{drv:'fp',tot:200000,u:'SF',basis:'Footprint SF',src:'Proforma roof $200k'},
-  'Roof insulation':{zero:'in roof line'},
   // GFA
-  'Concrete superstructure — frame, slabs & roof deck':{drv:'gfa',tot:3000000,u:'SF',basis:'GFA SF',src:'Proforma structure $2.7M + concrete $0.3M'},
   'Metal stud partition framing':{drv:'gfa',tot:850000,u:'SF',basis:'GFA SF',src:'Proforma framing $850k'},
   'Gypsum board (5/8" Type X)':{drv:'gfa',tot:450000,u:'SF',basis:'GFA SF',src:'Proforma Sheetrock $450k'},
   'Painting — walls & ceilings':{drv:'gfa',tot:350000,u:'SF',basis:'GFA SF',src:'Proforma painting $350k'},
   'Porcelain tile — bath & kitchen':{drv:'gfa',tot:325000,u:'SF',basis:'GFA SF',src:'Proforma tiles & labor $325k'},
   'Engineered wood flooring':{drv:'gfa',tot:325000,u:'SF',basis:'GFA SF',src:'Proforma wood flooring $325k'},
-  'Plumbing systems (units, risers, common, DHW)':{drv:'gfa',tot:650000,u:'SF',basis:'GFA SF',src:'Proforma plumbing/heating/vent/sprinkler $925k (plumbing share)'},
-  'Fire sprinkler (NFPA 13R)':{drv:'gfa',tot:275000,u:'SF',basis:'GFA SF',src:'Proforma plumbing/heating/vent/sprinkler $925k (sprinkler share)'},
-  'Electrical (service, distribution, units, fixtures, fire alarm)':{drv:'gfa',tot:940000,u:'SF',basis:'GFA SF',src:'Proforma electric $875k + fire alarm $65k'},
   'Utility connections':{lump:75000,src:'Proforma water & sewer $75k'},
-  // not separate lines in the proforma
-  'Bathroom vanities & accessories':{zero:'not a separate proforma line (in plumbing/tiles)'},
-  'Specialty ceilings / soffits':{zero:'not a separate proforma line (in Sheetrock)'},
-  'Egress stairs (steel pan + concrete)':{zero:'not a separate proforma line (in structure)'},
-  'Misc metals — railings, guards':{zero:'not a separate proforma line (in structure)'},
-  'Caulking & sealants':{zero:'not a separate proforma line'},
+  // Kept at market/set rates (proforma too light or no line): excavation & SOE by CY/LF, $45/SF foundation & structure,
+  // $13 plumbing / $6 sprinkler / $12 electrical per SF, stairs, railings, soffits, caulking, vanities, roof insulation.
 };
 const OWNER_HVAC=['Outdoor condensing units','Indoor AC units (1 per room)','Exhaust fans (kitchen + bath)','Refrigerant piping & insulation','Exhaust ductwork & goosenecks','Install, controls, balancing (TAB)'];
 const OWNER_LUMP={'Landscaping':35000};
 function priceBook(){ return (document.getElementById('price-book')||{}).value||'market'; }
 function setPriceBook(v){
-  if(v==='owner'){ setV('gc-pct',4); setV('op-pct',0); setV('cont-pct',0); }   // CM fee 4% (proforma $578k ÷ $14.45M), no GC O&P, no contingency
+  if(v==='owner'){ setV('gc-pct',4); setV('op-pct',0); setV('cont-pct',5); }   // CM fee 4% (proforma $578k ÷ $14.45M), no GC O&P, 5% contingency
   else { setV('gc-pct',8); setV('op-pct',12); setV('cont-pct',15); }
   recalc();
 }
@@ -1435,11 +1423,6 @@ function recalc(){
 // Lines tagged "mkt-adj −30%" are restored to full market (÷0.7). Everything
 // else is already priced at market. Location factor applies to every line.
 const MARKET_PRICE={
-  'Foundation (footings, mat, walls)':70,
-  'Concrete superstructure — frame, slabs & roof deck':65,
-  'Plumbing systems (units, risers, common, DHW)':35,
-  'Fire sprinkler (NFPA 13R)':9,
-  'Electrical (service, distribution, units, fixtures, fire alarm)':32,
   'Apartment / entry doors (metal)':2800,
   'Stair / fire-rated doors (metal)':3200,
   'Interior doors (solid wood)':1100,
@@ -2397,14 +2380,10 @@ function shadeColor(hex,pct){
 /* One entry per takeoff line: what it is, what it's made of, and how to
    picture it. kind 'product' = studio product shot, 'work' = job-site photo. */
 const SPEC_CATALOG={
-  'Excavation & soil export':{mat:'Excavated soil, trucked to licensed disposal/fill site',desc:'Machine excavation of the building footprint to cellar depth, loaded and hauled off-site.',kind:'work',photo:'an excavator digging a rectangular cellar pit on a narrow Brooklyn lot, dump truck being loaded'},
-  'Support of excavation (SOE) — soldier piles & lagging':{mat:'Steel H-pile soldier beams with timber lagging boards',desc:'Temporary earth retention around the excavation so soil and neighboring lots stay in place.',kind:'work',photo:'steel soldier piles with horizontal timber lagging retaining the side of a deep urban excavation'},
   'Underpinning of adjacent buildings':{mat:'Cast-in-place concrete underpinning pits, dry-packed',desc:'Extends neighboring building foundations below the new excavation, dug and poured in short sequenced sections.',kind:'work',photo:'concrete underpinning pits beneath an old brick party wall next to an excavation'},
   'Piles (steel pipe / helical, installed)':{mat:'Steel pipe or helical piles, galvanized, with pile caps',desc:'Deep foundation elements that carry building loads down to competent soil or rock.',kind:'work',photo:'a drill rig installing steel pipe piles on a small urban construction site'},
-  'Foundation (footings, mat, walls)':{mat:'Reinforced concrete, 4,000–5,000 psi, rebar',desc:'Footings, mat slab and cellar walls that carry the building to the ground.',kind:'work',photo:'reinforced concrete foundation walls and footing with rebar and formwork'},
   'Below-grade waterproofing':{mat:'Sheet or fluid-applied membrane with drainage board',desc:'Keeps groundwater out of the cellar walls and slab.',kind:'work',photo:'black waterproofing membrane and dimpled drainage board on a concrete foundation wall'},
   'Utility connections':{mat:'Water, sewer, gas and electric service taps',desc:'New service connections from the street mains (DEP water/sewer, Con Ed gas/electric).',kind:'work',photo:'utility trench from a Brooklyn street to a building with new water and sewer pipes'},
-  'Concrete superstructure — frame, slabs & roof deck':{mat:'Reinforced concrete flat-plate slabs and columns',desc:'The building frame: columns, floor slabs and roof deck.',kind:'work',photo:'mid-rise reinforced concrete frame under construction with flat slabs and columns'},
   'Exterior facade (new skin)':{mat:'Brick veneer / fiber-cement panel on metal stud backup',desc:'Finished exterior walls of the building.',kind:'product',photo:'a modern Brooklyn apartment building facade with dark brick and large windows'},
   'Air/vapor barrier & insulation':{mat:'Fluid-applied air barrier + 2–3" mineral wool continuous insulation',desc:'Continuous insulation and air seal behind the facade for energy code.',kind:'work',photo:'mineral wool insulation boards fastened over an air barrier on an exterior wall'},
   'Selective interior demolition':{mat:'Removal of existing partitions, finishes and fixtures',desc:'Strip-out of the existing interior to prepare for the new layout.',kind:'work',photo:'interior demolition inside an old loft building, exposed brick and debris'},
@@ -2414,12 +2393,8 @@ const SPEC_CATALOG={
   'New CMU bearing/shaft walls':{mat:'8" concrete masonry units, reinforced and grouted, 2-hr rated',desc:'Block walls for stairs, elevator shaft and fire separations.',kind:'product',photo:'a wall of grey 8 inch concrete masonry blocks with mortar joints'},
   'Existing floor structure mod / reinf':{mat:'Steel beams / sistered joists at existing floors',desc:'Reinforcing existing floors for new loads and openings.',kind:'work',photo:'new steel beam installed under an existing timber floor in an old building'},
   'Blocking, backing, rough carpentry':{mat:'Fire-retardant treated lumber and plywood',desc:'Wood blocking inside walls for cabinets, grab bars, TVs and trim.',kind:'product',photo:'fire retardant treated 2x lumber blocking between metal studs'},
-  'Egress stairs (steel pan + concrete)':{mat:'Steel stringers, steel pan treads filled with concrete, steel rails',desc:'Fire exit stairs between all floors.',kind:'product',photo:'a steel pan egress stair with concrete-filled treads and a painted steel railing'},
-  'Misc metals — railings, guards':{mat:'Painted steel railings and guards, 42" high',desc:'Guards, handrails and miscellaneous steel items.',kind:'product',photo:'a black painted steel guardrail and handrail on a stair landing'},
   'Roofing membrane':{mat:'Modified bitumen or TPO roofing membrane',desc:'New watertight roof system.',kind:'work',photo:'a flat roof with a new white TPO roofing membrane on a city building'},
-  'Roof insulation':{mat:'Tapered polyiso insulation boards',desc:'Insulation under the roof membrane, sloped to drains.',kind:'product',photo:'stacked tapered polyisocyanurate roof insulation boards'},
   'Exterior wall insulation (int. face)':{mat:'Closed-cell spray foam or mineral wool at inside face of exterior walls',desc:'Insulating existing masonry walls from the inside.',kind:'work',photo:'closed cell spray foam insulation on the inside of an old brick wall between studs'},
-  'Caulking & sealants':{mat:'Silicone and polyurethane sealants',desc:'Sealing joints at windows, doors and facade.',kind:'product',photo:'a caulk gun applying a bead of grey sealant around a window frame'},
   'Inner court / curtain wall system':{mat:'Aluminum curtain wall with insulated glass',desc:'Glazed walls enclosing the inner light court.',kind:'product',photo:'an aluminum curtain wall with large insulated glass panels facing an inner courtyard'},
   'Windows (replacement)':{mat:'Aluminum windows, thermally broken, insulated low-E glass',desc:'New energy-efficient windows in the openings.',kind:'product',photo:'a black thermally broken aluminum window with insulated low-e glass, isolated'},
   'Apartment / entry doors (metal)':{mat:'Hollow metal door & frame, 3\'-0" × 7\'-0", 20-min rated, lever lockset, closer, peephole',desc:'Front door of each apartment, off the public corridor.',kind:'product',photo:'a painted dark grey hollow metal apartment entry door with lever handle and peephole'},
@@ -2430,20 +2405,15 @@ const SPEC_CATALOG={
   'Porcelain tile — bath & kitchen':{mat:'Porcelain tile, 12×24 floor / 3×12 wall, on waterproofing',desc:'Tile floors and walls in bathrooms and kitchen backsplashes.',kind:'product',photo:'a modern bathroom with large format grey porcelain floor tile and white wall tile'},
   'Engineered wood flooring':{mat:'Engineered white oak plank, 5" wide, 3/4" thick, factory-finished matte',desc:'Wood floors in living rooms, bedrooms and halls.',kind:'product',photo:'wide white oak engineered wood plank flooring with a matte natural finish in a bright apartment living room'},
   'Painting — walls & ceilings':{mat:'Low-VOC latex, primer + 2 coats (eggshell walls, flat ceilings)',desc:'Paint on all new walls and ceilings.',kind:'work',photo:'freshly painted white apartment walls and ceiling with a paint roller'},
-  'Specialty ceilings / soffits':{mat:'Gypsum board soffits and drop ceilings on metal framing',desc:'Dropped ceilings to hide ducts and pipes.',kind:'work',photo:'a gypsum board drop soffit in an apartment hallway hiding ductwork'},
   'Kitchen casework & countertops':{mat:'Flat-panel cabinets with Caesarstone quartz countertop',desc:'Full kitchen cabinets and countertops per unit.',kind:'product',photo:'a compact modern apartment kitchen with flat panel cabinets and a white Caesarstone quartz countertop'},
-  'Bathroom vanities & accessories':{mat:'Wall-hung vanity, porcelain sink, mirror, towel bars, grab-bar blocking',desc:'Vanity and accessories in each bathroom.',kind:'product',photo:'a wall-hung bathroom vanity with integrated white sink and mirror'},
   'Appliance packages':{mat:'Stainless range, refrigerator, dishwasher, microwave/hood',desc:'Kitchen appliances for each unit.',kind:'product',photo:'a set of stainless steel kitchen appliances: range, refrigerator and dishwasher'},
   'Passenger elevator':{mat:'Machine-room-less traction elevator, stainless cab',desc:'Passenger elevator serving all floors.',kind:'product',photo:'a modern passenger elevator with brushed stainless steel doors in a lobby'},
-  'Plumbing systems (units, risers, common, DHW)':{mat:'PEX/copper water, cast-iron/PVC waste, fixtures, water heaters',desc:'All water, waste, vent and hot-water piping and fixtures.',kind:'work',photo:'new copper and PEX plumbing pipes and cast iron drain risers in an open wall'},
-  'Fire sprinkler (NFPA 13R)':{mat:'Black steel / CPVC sprinkler piping with concealed heads',desc:'Automatic fire sprinkler system throughout.',kind:'product',photo:'a concealed white fire sprinkler head in a ceiling'},
   'Outdoor condensing units':{mat:'Inverter heat-pump condensers, roof-mounted',desc:'Outdoor units for the heating/cooling system.',kind:'product',photo:'a row of inverter heat pump condensing units on a flat roof'},
   'Indoor AC units (1 per room)':{mat:'Ductless wall-mounted heat pump head (mini-split)',desc:'One heating/cooling unit in each room ≥ 8×8 ft with a window.',kind:'product',photo:'a white ductless mini split wall mounted air conditioner unit, isolated'},
   'Exhaust fans (kitchen + bath)':{mat:'Quiet ceiling exhaust fans, ducted to exterior',desc:'Bathroom and kitchen ventilation.',kind:'product',photo:'a white ceiling bathroom exhaust fan grille'},
   'Refrigerant piping & insulation':{mat:'Insulated copper refrigerant line sets',desc:'Piping between the outdoor and indoor AC units.',kind:'product',photo:'coiled insulated copper refrigerant line set for a mini split'},
   'Exhaust ductwork & goosenecks':{mat:'Galvanized sheet-metal ductwork and roof goosenecks',desc:'Ducts from exhaust fans to the roof.',kind:'product',photo:'galvanized sheet metal exhaust ductwork'},
   'Install, controls, balancing (TAB)':{mat:'Thermostats, controls, testing & balancing',desc:'Controls and commissioning of the HVAC system.',kind:'product',photo:'a modern wall thermostat in an apartment'},
-  'Electrical (service, distribution, units, fixtures, fire alarm)':{mat:'Copper wiring, panels, devices, LED fixtures, fire alarm',desc:'Electrical service, apartment panels, outlets, lighting and fire alarm.',kind:'work',photo:'an open electrical panel with neatly organized copper wiring and breakers'},
 };
 function specFor(name){
   if(SPEC_CATALOG[name]) return SPEC_CATALOG[name];
