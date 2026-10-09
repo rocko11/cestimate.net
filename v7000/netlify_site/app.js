@@ -1097,12 +1097,19 @@ function buildTakeoff(m){
       {n:'Below-grade waterproofing', basis:'Footprint SF', qty:m.footprint, u:'SF', p:14, mh:0.05, trade:'laborer', src:'Foundation walls+slab'},
       {n:'Utility connections', basis:'Lump', qty:1, u:'LS', p:185000, mh:350, trade:'laborer', src:'ConEd/DEP taps'},
     ]});
+    // Facade area floor by floor: each above-grade level's own perimeter (from its gross area) × floor height. Setbacks no longer counted as full-height wall.
+    const fr=(typeof floorRows!=='undefined'&&Array.isArray(floorRows))?floorRows.filter(r=>r&&r.gross>0&&!/CELL|BASE|BULK|ROOF|PENT/i.test(String(r.name||''))):[];
+    const perFloor=fr.length>=Math.max(2,Math.round(m.floors*0.8));
+    const wallSF=perFloor?fr.reduce((a,r)=>a+4*Math.sqrt(r.gross)*m.f2f*0.90,0):(m.perim>0?m.perim:Math.sqrt(m.footprint)*4)*m.f2f*m.floors*0.90;
+    const wallBasis=perFloor?'Each floor: 4√(floor SF) × ht × 90% ('+fr.length+' floors)':'Perim × ht × floors × 90%';
+    const winEach=24, winSF=(m.windows||0)*winEach;
     divs.push({div:'00b · Superstructure', items:[
       {n:'Concrete superstructure — frame, slabs & roof deck', basis:'GFA SF · mandatory $45/SF', qty:m.gfa, u:'SF', p:45, fixed:true, mh:0.30, trade:'concrete', src:'Mandatory $45/SF (fixed)'},
     ]});
     divs.push({div:'00c · Exterior Envelope', items:[
-      {n:'Exterior facade (new skin)', basis:'Perim × ht × floors × 90%', qty:(m.perim>0?m.perim:Math.sqrt(m.footprint)*4)*m.f2f*m.floors*0.90, u:'SF', p:55, mh:0.30, trade:'glazier', src:'Curtain wall/masonry/panel'},
-      {n:'Air/vapor barrier & insulation', basis:'Perim × ht × floors × 90%', qty:(m.perim>0?m.perim:Math.sqrt(m.footprint)*4)*m.f2f*m.floors*0.90, u:'SF', p:16, mh:0.05, trade:'insulation', src:'Continuous insulation'},
+      {n:'Exterior facade (new skin, excl. windows)', basis:wallBasis, qty:Math.max(0,wallSF-winSF), u:'SF', p:55, mh:0.30, trade:'glazier', src:'Masonry/panel/stucco'},
+      {n:'Windows & glass doors (new)', basis:planBasis('windows')+' · '+Math.round(winEach)+' SF each', qty:m.windows||0, u:'EA', p:1800, mh:4, trade:'glazier', src:'Fiberglass/aluminum, installed'},
+      {n:'Air/vapor barrier & insulation', basis:wallBasis, qty:wallSF, u:'SF', p:16, mh:0.05, trade:'insulation', src:'Continuous insulation'},
     ]});
   }else{
     const exc=excavationItems(m,true);
@@ -1129,8 +1136,8 @@ function buildTakeoff(m){
   ]});
 
   divs.push({div:'07 · Thermal & Moisture', items:[
-    {n:'Roofing membrane', basis:'Footprint + bulkhead', qty:m.footprint+800, u:'SF', p:22, mh:0.04, trade:'roofer', src:'EPDM/mod-bit'},
-    {n:'Roof insulation', basis:'Footprint + bulkhead', qty:m.footprint+800, u:'SF', p:6.5, mh:0.02, trade:'roofer', src:'R-30 polyiso'},
+    {n:'Roofing membrane', basis:'Footprint + bulkhead', qty:m.footprint+bulkSF(), u:'SF', p:22, mh:0.04, trade:'roofer', src:'EPDM/mod-bit'},
+    {n:'Roof insulation', basis:'Footprint + bulkhead', qty:m.footprint+bulkSF(), u:'SF', p:6.5, mh:0.02, trade:'roofer', src:'R-30 polyiso'},
     !isNew && {n:'Exterior wall insulation (int. face)', basis:'Perim × ht × floors × 85%', qty:m.perim*m.f2f*m.floors*0.85, u:'SF', p:12, mh:0.05, trade:'insulation', src:'Rigid + mineral wool'},
     {n:'Caulking & sealants', basis:'Lump', qty:1, u:'LS', p:45000, mh:250, trade:'laborer', src:'Perimeters, joints'},
   ].filter(Boolean)});
@@ -1860,6 +1867,7 @@ function applyQuickFloors(){
   setV('m-gfa',Math.round(g)); setV('m-nsf',Math.round(n)); setV('m-footprint',Math.round(fp));
   if(fl.length) setV('m-floors',Math.max.apply(null,fl)); if(cel>0) setV('m-cellar',1);
 }
+function bulkSF(){ try{ const b=(floorRows||[]).find(r=>/BULK|PENT/i.test(String(r.name||''))&&r.gross>0); return b?b.gross:800; }catch(e){ return 800; } }
 function addFloorRow(){ floorRows.push({name:'Level '+(floorRows.length+1), gross:0, net:0}); renderFloors(); }
 function rmFloorRow(i){ floorRows.splice(i,1); renderFloors(); }
 function setFloor(i,f,v){
