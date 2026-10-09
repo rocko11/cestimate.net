@@ -317,10 +317,22 @@ async function extractFromImages(pages,onProg){
 
 
 // Focused pass for the per-floor area table: the general extraction often returns only some rows.
-const FLOOR_TABLE_PROMPT=`This sheet contains a FLOOR AREA table or diagram (rows per level: cellar, each numbered floor, bulkhead/penthouse, etc.; columns such as GROSS, DEDUCTIONS, ZFA, NET).
-List EVERY row for EVERY building level (cellar, 1, 2, 3, 4, bulkhead/penthouse...) top to bottom. Levels/floors only — NOT apartments, units or rooms. Do not skip or merge rows. If a note says several floors are identical (e.g. "1,2,3,4TH FLOORS"), still return one row per floor.
-gross = the GROSS column (or gross area stated for that level) in SF; net = a column explicitly labeled NET (or net floor area) in SF, otherwise null. Ignore total rows.
-Return JSON only: {"floorAreas":[{"name":string,"gross":number|null,"net":number|null}]}`;
+const FLOOR_TABLE_PROMPT=`This sheet contains a FLOOR AREA table (rows per level: cellar, each numbered floor, bulkhead/penthouse; columns such as RESIDENTIAL GROSS / DEDUCTIONS / ZFA and COMMERCIAL GROSS / DEDUCTIONS / ZFA, or a single GROSS / NET column).
+Read every digit EXACTLY as printed (e.g. 6,682.500 not 6,802.5). List EVERY level row top to bottom (cellar, 1, 2, ... 10, bulkhead). Levels only, NOT apartments or rooms. If a note says several floors are identical, still return one row per floor.
+For each level: resGross = residential GROSS in SF (null if blank), comGross = commercial GROSS in SF (null if blank), gross = resGross + comGross (or the single GROSS column), net = a column explicitly labeled NET in SF, otherwise null.
+Also read the printed totals if present: totalResGross, totalComGross, combinedGross (the TOTAL ... GROSS AREA lines), else null.
+Return JSON only: {"floorAreas":[{"name":string,"resGross":number|null,"comGross":number|null,"gross":number|null,"net":number|null}],"totals":{"totalResGross":number|null,"totalComGross":number|null,"combinedGross":number|null}}`;
+// Read the table 3 times and keep the reading whose rows add up to the printed total.
+function pickBestTable(reads){
+  const scored=reads.filter(r=>r&&Array.isArray(r.floorAreas)&&r.floorAreas.length>=2).map(r=>{
+    const rows=r.floorAreas.map(x=>{ const g=(typeof x.gross==='number'&&x.gross>0)?x.gross:((+x.resGross||0)+(+x.comGross||0)); return Object.assign({},x,{gross:g>0?g:null}); });
+    const sum=rows.reduce((a,x)=>a+(x.gross||0),0); const tot=r.totals&&+r.totals.combinedGross;
+    const err=tot>0?Math.abs(sum-tot)/tot:0.5; return {rows,err,n:rows.length};
+  });
+  if(!scored.length) return null;
+  scored.sort((a,b)=>a.err-b.err||b.n-a.n);
+  return scored[0].rows.map(x=>({name:x.name,gross:x.gross,net:x.net}));
+}
 async function refineFloorAreas(merged){
   const cand=[];
   files.forEach(entry=>{
@@ -334,9 +346,10 @@ async function refineFloorAreas(merged){
   const outs=await pool(cand.slice(0,3),3,async({entry,i})=>{
     for(let a=0;a<2;a++){
       try{
-        const c=await renderPageCanvas(entry,i,3200);
-        const j=parseJSON(await callExtractor([{media_type:'image/jpeg',data:c.toDataURL('image/jpeg',0.92).split(',')[1]}],'',FLOOR_TABLE_PROMPT));
-        if(j&&Array.isArray(j.floorAreas)) return j.floorAreas;
+        const c=await renderPageCanvas(entry,i,4800);
+        const b64=c.toDataURL('image/jpeg',0.92).split(',')[1];
+        const reads=await Promise.all([0,1,2].map(()=>callExtractor([{media_type:'image/jpeg',data:b64}],'',FLOOR_TABLE_PROMPT).then(parseJSON).catch(()=>null)));
+        const t=pickBestTable(reads); if(t) return t;
       }catch(e){ if(a===1) console.warn('floor table pass failed',e); }
     }
     return null;
