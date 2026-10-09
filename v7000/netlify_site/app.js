@@ -1275,13 +1275,36 @@ function resetEstimate(){
   customRows=[]; recalc();
 }
 
+/* Owner price book: unit rates taken from P National's 915 Dean proforma (hard-cost budget, Jul 2026),
+   applied flat (no borough/construction-type factor). Quantities still come from the plans. */
+const OWNER_RATES={
+  'Windows & glass doors (new)':{p:4480,src:'P National proforma: $650k ÷ 145 windows'},
+  'Apartment / entry doors (metal)':{p:1800,src:'P National proforma (doors $295k)'},
+  'Stair / fire-rated doors (metal)':{p:1800,src:'P National proforma (doors $295k)'},
+  'Interior doors (solid wood)':{p:1100,src:'P National proforma (doors $295k)'},
+  'Passenger elevator':{p:450000,src:'P National proforma: $900k for 2 elevators'},
+  'Exterior facade (new skin, excl. windows)':{p:26,src:'P National proforma: façade $750k'},
+  'Air/vapor barrier & insulation':{p:3,src:'P National proforma: foam insulation $96k'},
+  'Kitchen casework & countertops':{p:8450,src:'P National proforma: kitchens $600k ÷ 71 units'},
+};
+function priceBook(){ return (document.getElementById('price-book')||{}).value||'market'; }
+function setPriceBook(v){
+  if(v==='owner'){ setV('gc-pct',4); setV('op-pct',0); setV('cont-pct',0); }   // CM fee 4% (proforma $578k), no GC O&P, no contingency
+  else { setV('gc-pct',8); setV('op-pct',12); setV('cont-pct',15); }
+  recalc();
+}
+function applyPriceBook(divs){
+  if(priceBook()!=='owner') return divs;
+  divs.forEach(d=>d.items.forEach(it=>{ const r=it&&OWNER_RATES[it.n]; if(r){ it.p=r.p; it.fixed=true; it.src=r.src; } }));
+  return divs;
+}
 function recalc(){
   const m=metrics();
   const nw=document.getElementById('nsf-warn');
   if(nw) nw.classList.toggle('hidden', m.nsf>0);
   const locMult=m.boro*m.ctype*m.occ;
   const laborMult=+getV('labor-mult')||1;
-  const divs=buildTakeoff(m);
+  const divs=applyPriceBook(buildTakeoff(m));
 
   // fold user-added rows into their divisions
   customRows.forEach((c,i)=>{
@@ -1448,7 +1471,7 @@ function sendToDealBuilder(){
 /* ============ TEMPLATES: save / load an estimate as JSON ============ */
 function saveTemplate(){
   const data={v:3, metrics:{}, overrides, customRows, floors:floorRows.slice(), walls:window.wallPlan||null, wages:Object.assign({},TRADE_RATE),
-    markups:{gc:getV('gc-pct'),op:getV('op-pct'),cont:getV('cont-pct'),margin:getV('margin-pct'),labor:getV('labor-mult')}};
+    markups:{gc:getV('gc-pct'),op:getV('op-pct'),cont:getV('cont-pct'),margin:getV('margin-pct'),labor:getV('labor-mult'),book:priceBook()}};
   ['m-name','m-job','m-borough','m-gfa','m-nsf','m-footprint','m-floors','m-units','m-f2f','m-perim',
    'm-cellar','m-worktype','m-ctype','m-occ','m-court','m-windows','m-doors-entry','m-doors-stair',
    'm-doors-int','m-hvac-cu','m-hvac-ah','m-exhaust','m-elev','m-exc-depth','m-soe-lf','m-underpin-lf','m-piles'].forEach(id=>data.metrics[id]=getV(id));
@@ -1474,7 +1497,7 @@ function loadTemplate(input){
       if(d.wages) Object.keys(d.wages).forEach(k=>{ if(TRADE_RATE[k]!==undefined) TRADE_RATE[k]=d.wages[k]; });
       renderWages();
       if(d.markups){ setV('gc-pct',d.markups.gc); setV('op-pct',d.markups.op);
-        setV('cont-pct',d.markups.cont); setV('margin-pct',d.markups.margin||0); setV('labor-mult',d.markups.labor||1); }
+        setV('cont-pct',d.markups.cont); setV('margin-pct',d.markups.margin||0); setV('labor-mult',d.markups.labor||1); const pb=document.getElementById('price-book'); if(pb) pb.value=d.markups.book||'market'; }
       hide('step-1'); hide('analyzing'); show('step-3'); setChip(3); recalc();
     }catch(e){ alert('That file is not a valid estimate template.'); }
   };

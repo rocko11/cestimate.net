@@ -317,6 +317,13 @@
     <div class="r"><span class="l">General conditions (<span id="gc-l">8</span>%)</span><span class="v" id="t-gc">—</span></div>
     <div class="r"><span class="l">GC overhead &amp; profit (<span id="op-l">12</span>%)</span><span class="v" id="t-op">—</span></div>
     <div class="cont-row">
+      <span class="l">Pricing</span>
+      <select id="price-book" onchange="setPriceBook(this.value)" style="margin-left:8px">
+        <option value="market">Market (subcontracted, GC markup)</option>
+        <option value="owner">P National proforma (self-performed GC)</option>
+      </select>
+    </div>
+    <div class="cont-row">
       <span class="l">GC %</span><input id="gc-pct" type="number" value="8" oninput="recalc()">
       <span class="l" style="margin-left:12px">O&amp;P %</span><input id="op-pct" type="number" value="12" oninput="recalc()">
       <span class="l" style="margin-left:12px">Contingency %</span><input id="cont-pct" type="number" value="15" oninput="recalc()">
@@ -430,7 +437,7 @@ window.addEventListener('error',function(e){
   if(el){ el.textContent='Script error: '+(e.message||'unknown')+'  — please report this.'; el.classList.remove('hidden'); }
 });
 </script>
-<script src="app.js?v=20261008-fj"></script>
+<script src="app.js?v=20261008-fk"></script>
 
 <!-- 3D RENDERING MODAL -->
 <div id="rendering-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,20,38,.93);overflow:auto;">
