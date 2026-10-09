@@ -28,14 +28,14 @@ exports.handler = async (event) => {
     const { image, prompt } = JSON.parse(event.body || '{}');
     if (typeof image !== 'string' || !image.startsWith('data:image/')) return json(400, { error: 'image (data URL) required' });
     if (image.length > 4.5e6) return json(413, { error: 'image too large' });
-    const r = await fetch(API + '/models/' + MODEL + '/predictions', {
-      method: 'POST', headers: auth,
-      body: JSON.stringify({ input: {
-        control_image: image,
-        prompt: String(prompt || '').slice(0, 1800),
-        steps: 50, guidance: 40, output_format: 'jpg', safety_tolerance: 2, prompt_upsampling: false,
-      } }),
-    });
+    // Default: FLUX Kontext (image-to-image edit) turns the elevation into a photo and drops the
+    // annotations; 'canny' (edge-following) is kept as an option.
+    const useCanny = (JSON.parse(event.body || '{}').mode === 'canny');
+    const model = useCanny ? MODEL : 'black-forest-labs/flux-kontext-pro';
+    const input = useCanny
+      ? { control_image: image, prompt: String(prompt || '').slice(0, 1800), steps: 50, guidance: 40, output_format: 'jpg', safety_tolerance: 2, prompt_upsampling: false }
+      : { input_image: image, prompt: String(prompt || '').slice(0, 1800), aspect_ratio: 'match_input_image', output_format: 'jpg', safety_tolerance: 2, prompt_upsampling: false };
+    const r = await fetch(API + '/models/' + model + '/predictions', { method: 'POST', headers: auth, body: JSON.stringify({ input }) });
     const d = await r.json();
     if (!r.ok) return json(r.status, { error: d.detail || d.title || 'replicate error' });
     return json(200, { id: d.id, status: d.status });

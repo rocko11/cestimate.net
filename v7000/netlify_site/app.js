@@ -2318,10 +2318,11 @@ async function renderFromElevation(src,box,m,boro,wt,desc,cap){
   const c=document.createElement('canvas'); c.width=Math.round(sw*sc); c.height=Math.round(sh*sc);
   const g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,c.width,c.height); g.drawImage(page,sx,sy,sw,sh,0,0,c.width,c.height);
   const image=c.toDataURL('image/jpeg',0.9);
-  const prompt='A real photograph taken with a DSLR camera (35mm lens, f/8) of a finished building in New York City — not a drawing, not an illustration, not a diagram. The building exactly follows the outline, floor lines, window and door openings, balconies, setbacks and roofline of the control image. '+
-    'A new '+m.floors+'-story '+wt+' building in '+boro+', New York City, seen straight-on at eye level from across the street. '+(desc?('Facade as drawn: '+desc+' '):'')+
-    'Real materials with texture (brick, stucco, metal panel, glass as appropriate), reflective glass windows with interior depth, storefront at street level if drawn, sidewalk, street trees, neighboring Brooklyn row buildings at the sides, soft daylight, high detail, professional real-estate rendering. '+
-    'Real sky with soft clouds, real asphalt street and concrete sidewalk in the foreground, depth and shadows. Absolutely no text, letters, labels, dimension lines, annotations or grid lines anywhere in the image.';
+  const prompt='Turn this architectural elevation drawing into a real photograph of the finished building, taken straight-on from across the street with a DSLR camera. '+
+    'Keep the building exactly as drawn: the same number of stories ('+m.floors+' above grade), the same window grid and window count on every floor, the same balconies, setbacks, roofline, bulkhead and ground-floor storefront. Do not add or remove floors or windows. '+
+    (desc?('Facade as drawn: '+desc+' '):'')+
+    'Use real materials with texture (brick, stucco, metal panel, glass as appropriate), glass with reflections and interior depth, a real blue sky with soft clouds, concrete sidewalk and street, street trees, and neighboring '+boro+' row buildings at the sides. '+
+    'Remove ALL text, labels, notes, dimension lines, grid lines, level markers and title-block elements — the result must contain no writing at all.';
   const r=await fetch('/.netlify/functions/render-elevation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image,prompt})});
   const d=await r.json().catch(()=>({}));
   if(!r.ok||!d.id) throw new Error(d.error||('render-elevation '+r.status));
