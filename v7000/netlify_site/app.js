@@ -2211,7 +2211,7 @@ async function generateAIImage(){
       entry.images.forEach((img,pi)=>{ const b=(typeof img==='string')?img:(img&&img.img); if(b) allImgs.push({b,entry,pi}); });   // page images are {img,text} objects
     }
   }
-  const SAMPLE_N=10;
+  const SAMPLE_N=16;
   let sampled=allImgs;
   if(allImgs.length>SAMPLE_N){
     sampled=[];
@@ -2353,8 +2353,8 @@ async function elevationJob(body,cap,label){
 }
 async function renderFromElevation(src,box,m,boro,wt,desc,cap){
   const page=await renderPageCanvas(src.entry,src.pi,2400);
-  let det=null; try{ det=findBuildingBox(page); }catch(e){}
-  let [x0,y0,x1,y1]=det||((box&&box.length===4&&box.every(v=>v>=0&&v<=1)&&box[2]>box[0]&&box[3]>box[1])?box:[0.03,0.03,0.80,0.92]);
+  // Crop: the AI's box around the front elevation; otherwise the sheet minus the title-block strip.
+  let [x0,y0,x1,y1]=(box&&box.length===4&&box.every(v=>v>=0&&v<=1)&&box[2]-box[0]>0.15&&box[3]-box[1]>0.15)?box:[0.02,0.04,0.84,0.96];
   const pad=0.012; x0=Math.max(0,x0-pad); y0=Math.max(0,y0-pad); x1=Math.min(1,x1+pad); y1=Math.min(1,y1+pad);
   const sx=Math.round(x0*page.width), sy=Math.round(y0*page.height), sw=Math.round((x1-x0)*page.width), sh=Math.round((y1-y0)*page.height);
   if(sw<200||sh<200) return null;
@@ -2364,13 +2364,11 @@ async function renderFromElevation(src,box,m,boro,wt,desc,cap){
   try{ cleanDrawing(c); }catch(e){}
   const image=c.toDataURL('image/jpeg',0.92);
   const look=(desc?('Facade as drawn: '+desc+' '):'')+'Real materials with texture (brick, stucco, metal panel, glass as appropriate), glass with reflections and interior depth, real blue sky with soft clouds, concrete sidewalk and street, street trees, neighboring '+boro+' row buildings at the sides, soft daylight.';
-  // Pass 1 — FLUX Canny: geometry locked to the drawing's lines (floors, window grid, setbacks).
-  const geo=await elevationJob({mode:'canny',image,prompt:'Professional real-estate photograph (DSLR, 35mm, f/8, natural daylight) of a newly completed '+m.floors+'-story '+wt+' building in '+boro+', New York City, shot straight-on from across the street. The building exactly follows the lines of the control image: its outline, every floor line, every window and door opening, balconies, hatched brick areas, setbacks and roofline. Photographic realism, not a drawing or illustration. '+look+' No text, letters, dimension lines or annotations.'},cap,'Rendering from the elevation drawing\u2026');
-  // Pass 2 — FLUX Kontext: make it a real photograph without moving anything.
-  let out=geo;
-  if(window.RENDER_PHOTO_PASS) try{
-    out=await elevationJob({mode:'kontext',image:geo,prompt:'Make this a real DSLR photograph of the finished building. Keep every floor, window, balcony, setback, roofline and storefront exactly where it is — do not add, remove or move anything; the building must keep exactly '+m.floors+' stories. '+look+' Remove any text, letters, labels or lines that are not part of the building.'},cap,'Pass 2/2 \u2014 making it photographic\u2026');
-  }catch(e){ console.warn('photo pass failed, using pass 1',e); }
+  // One pass — FLUX Kontext turns the drawing itself into a photograph (realistic, drops the annotations).
+  // (Edge-following Canny kept the lines but looked like a coloured drawing and copied labels, so it is off.)
+  const out=await elevationJob({mode:'kontext',image,prompt:'Turn this architectural elevation drawing into a real DSLR photograph of the finished building, taken straight-on from across the street. '+
+    'Keep the building exactly as drawn: '+m.floors+' stories above grade, the same window grid and number of windows on every floor, the same balconies, setbacks, roofline, bulkhead and ground-floor storefront. Do not add or remove floors or windows. '+
+    look+' Remove ALL text, labels, notes, dimension lines, grid lines, level markers and title-block elements \u2014 the photo must contain no writing.'},cap,'Rendering the elevation as a photograph\u2026');
   try{ const b=await (await fetch(out)).blob(); return await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=()=>res(out); fr.readAsDataURL(b); }); }catch(e){ return out; }
 }
 function parseRenderFeatures(desc,m){
