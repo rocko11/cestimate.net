@@ -340,6 +340,7 @@ async function refineFloorAreas(merged){
     entry.images.forEach((pg,i)=>{
       const t=((pg&&typeof pg==='object'&&pg.text)||'').toUpperCase().replace(/\s+/g,' ');
       if(i<8&&/FLOOR AREA|AREA DIAGRAM|ZFA/.test(t)) cand.push({entry,i});
+      else if(i<3&&t.length<40) cand.push({entry,i});   // scanned set (no text layer): the zoning/area table is almost always on the first sheets
     });
   });
   let best=merged.floorAreas&&Array.isArray(merged.floorAreas)?merged.floorAreas:[];
@@ -436,7 +437,12 @@ async function analyzePlans(){
     const tPC=(need.doors||need.windows||need.ac)?withDeadline(countFromPlans(results,msg,sub),150000,{sheets:[]}).catch(e=>{console.warn('plan count failed',e);return {sheets:[]};}):Promise.resolve({sheets:[]});
     const tPF=withDeadline(countPlanFacts(results),150000,null).catch(e=>{console.warn('plan facts failed',e);return null;});
     const [fa,pc,pf]=await Promise.all([tFA,tPC,tPF]);
-    if(fa) merged.floorAreas=fa;
+    if(fa){
+      fa.forEach(r=>{ if(r&&typeof r.net==='number'&&typeof r.gross==='number'&&r.net>r.gross) r.net=null; });   // net can never exceed gross
+      merged.floorAreas=fa;
+      const g=fa.reduce((a,r)=>a+((r&&r.gross>0)?r.gross:0),0);
+      if(g>0&&fa.filter(r=>r&&r.gross>0).length>=2) merged.gfa=Math.round(g);   // the architect's table total is the GFA
+    }
     if(pc&&pc.sheets&&pc.sheets.length){
       planInfo.sheets=pc.sheets; planInfo.vector=!!pc.vector;
       const drop=l=>{ const i=missing.indexOf(l); if(i>=0) missing.splice(i,1); };
