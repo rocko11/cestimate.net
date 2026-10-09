@@ -343,12 +343,20 @@ async function refineFloorAreas(merged){
     });
   });
   let best=merged.floorAreas&&Array.isArray(merged.floorAreas)?merged.floorAreas:[];
-  const outs=await pool(cand.slice(0,3),3,async({entry,i})=>{
+  const outs=await pool(cand.slice(0,3),1,async({entry,i})=>{
     for(let a=0;a<2;a++){
       try{
-        const c=await renderPageCanvas(entry,i,4800);
-        const b64=c.toDataURL('image/jpeg',0.92).split(',')[1];
-        const reads=await Promise.all([0,1,2].map(()=>callExtractor([{media_type:'image/jpeg',data:b64}],'',FLOOR_TABLE_PROMPT).then(parseJSON).catch(()=>null)));
+        // The model sees at most ~1500 px per image, so a whole sheet is unreadable to the digit. Read it in 3x2 tiles (10% overlap) and keep the tile holding the table.
+        const c=await renderPageCanvas(entry,i,6600);
+        const W=c.width,H=c.height,tw=Math.round(W/3*1.1),th=Math.round(H/2*1.1);
+        const tiles=[]; for(let r=0;r<2;r++)for(let q=0;q<3;q++){
+          const x=Math.max(0,Math.min(W-tw,Math.round(q*W/3-W*0.033))),y=Math.max(0,Math.min(H-th,Math.round(r*H/2-H*0.05)));
+          const t=document.createElement('canvas'); t.width=tw; t.height=th; t.getContext('2d').drawImage(c,x,y,tw,th,0,0,tw,th);
+          tiles.push(t.toDataURL('image/jpeg',0.92).split(',')[1]); }
+        const first=await Promise.all(tiles.map(b=>callExtractor([{media_type:'image/jpeg',data:b}],'',FLOOR_TABLE_PROMPT).then(parseJSON).catch(()=>null)));
+        let bi=-1,bn=0; first.forEach((r,k)=>{ const n=r&&Array.isArray(r.floorAreas)?r.floorAreas.length:0; if(n>bn){bn=n;bi=k;} });
+        if(bi<0||bn<2) continue;
+        const reads=[first[bi]].concat(await Promise.all([0,1].map(()=>callExtractor([{media_type:'image/jpeg',data:tiles[bi]}],'',FLOOR_TABLE_PROMPT).then(parseJSON).catch(()=>null))));
         const t=pickBestTable(reads); if(t) return t;
       }catch(e){ if(a===1) console.warn('floor table pass failed',e); }
     }
