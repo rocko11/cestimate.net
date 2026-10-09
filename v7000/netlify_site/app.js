@@ -2271,7 +2271,7 @@ async function generateAIImage(){
         const img=document.createElement('img'); img.id='ai-render-photo'; img.src=url; img.crossOrigin='anonymous';
         img.style.cssText='width:100%;height:100%;object-fit:contain;background:#eef1f5;display:block;';
         loading.style.display='none'; container.appendChild(img); photoOk=true;
-        cap.textContent='Rendered from the actual elevation drawing (geometry follows the sheet). '+(renderDesc?renderDesc.slice(0,200):'');
+        cap.textContent='Photo rendering made from your front elevation sheet. '+(renderDesc?renderDesc.slice(0,200):'');
         btn.disabled=false; track('render_elevation');
         return;
       }
