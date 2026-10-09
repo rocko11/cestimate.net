@@ -26,7 +26,8 @@ exports.handler = async (event) => {
     }
     if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
     const { image, prompt } = JSON.parse(event.body || '{}');
-    if (typeof image !== 'string' || !image.startsWith('data:image/')) return json(400, { error: 'image (data URL) required' });
+    const okUrl = typeof image === 'string' && /^https:\/\/(replicate\.delivery|[a-z0-9.-]+\.replicate\.delivery)\//.test(image);
+    if (typeof image !== 'string' || !(image.startsWith('data:image/') || okUrl)) return json(400, { error: 'image (data URL or Replicate output URL) required' });
     if (image.length > 4.5e6) return json(413, { error: 'image too large' });
     // Default: FLUX Kontext (image-to-image edit) turns the elevation into a photo and drops the
     // annotations; 'canny' (edge-following) is kept as an option.

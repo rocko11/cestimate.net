@@ -2308,6 +2308,32 @@ async function generateAIImage(){
   btn.disabled=false;
 }
 
+// Strip lettering from a line drawing: dark connected blobs smaller than a window (text, dimension numbers,
+// level tags) are painted white so the edge-following model sees only building lines.
+function cleanDrawing(c){
+  const W=c.width,H=c.height,g=c.getContext('2d'); const im=g.getImageData(0,0,W,H),d=im.data;
+  const dark=new Uint8Array(W*H); for(let i=0;i<W*H;i++){ const v=(d[i*4]+d[i*4+1]+d[i*4+2])/3; dark[i]=v<140?1:0; }
+  const lab=new Int32Array(W*H); let n=0; const stack=[]; const lim=Math.max(6,Math.round(Math.min(W,H)*0.014));
+  for(let p=0;p<W*H;p++){ if(!dark[p]||lab[p]) continue; n++; let x0=1e9,y0=1e9,x1=-1,y1=-1,cnt=0; stack.push(p); lab[p]=n; const pix=[];
+    while(stack.length){ const q=stack.pop(); pix.push(q); const x=q%W,y=(q/W)|0; cnt++; if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y;
+      for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){ const nx=x+dx,ny=y+dy; if(nx<0||ny<0||nx>=W||ny>=H) continue; const r=ny*W+nx; if(dark[r]&&!lab[r]){ lab[r]=n; stack.push(r);} } }
+    if(Math.max(x1-x0,y1-y0)<lim) pix.forEach(q=>{ d[q*4]=d[q*4+1]=d[q*4+2]=255; });
+  }
+  g.putImageData(im,0,0); return c;
+}
+async function elevationJob(body,cap,label){
+  const r=await fetch('/.netlify/functions/render-elevation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok||!d.id) throw new Error(d.error||('render-elevation '+r.status));
+  for(let i=0;i<40;i++){
+    await new Promise(res=>setTimeout(res,3000));
+    if(cap) cap.textContent=label+' '+(i*3+3)+'s';
+    const p=await (await fetch('/.netlify/functions/render-elevation?id='+encodeURIComponent(d.id))).json().catch(()=>({}));
+    if(p.status==='succeeded'&&p.image) return p.image;
+    if(p.status==='failed'||p.status==='canceled') throw new Error(p.error||p.status);
+  }
+  throw new Error('rendering timed out');
+}
 async function renderFromElevation(src,box,m,boro,wt,desc,cap){
   const page=await renderPageCanvas(src.entry,src.pi,2400);
   let [x0,y0,x1,y1]=(box&&box.length===4&&box.every(v=>v>=0&&v<=1)&&box[2]>box[0]&&box[3]>box[1])?box:[0.03,0.03,0.80,0.92];
@@ -2317,25 +2343,17 @@ async function renderFromElevation(src,box,m,boro,wt,desc,cap){
   const sc=Math.min(1,1440/Math.max(sw,sh));
   const c=document.createElement('canvas'); c.width=Math.round(sw*sc); c.height=Math.round(sh*sc);
   const g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,c.width,c.height); g.drawImage(page,sx,sy,sw,sh,0,0,c.width,c.height);
-  const image=c.toDataURL('image/jpeg',0.9);
-  const prompt='Turn this architectural elevation drawing into a real photograph of the finished building, taken straight-on from across the street with a DSLR camera. '+
-    'Keep the building exactly as drawn: the same number of stories ('+m.floors+' above grade), the same window grid and window count on every floor, the same balconies, setbacks, roofline, bulkhead and ground-floor storefront. Do not add or remove floors or windows. '+
-    (desc?('Facade as drawn: '+desc+' '):'')+
-    'Use real materials with texture (brick, stucco, metal panel, glass as appropriate), glass with reflections and interior depth, a real blue sky with soft clouds, concrete sidewalk and street, street trees, and neighboring '+boro+' row buildings at the sides. '+
-    'Remove ALL text, labels, notes, dimension lines, grid lines, level markers and title-block elements — the result must contain no writing at all.';
-  const r=await fetch('/.netlify/functions/render-elevation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image,prompt})});
-  const d=await r.json().catch(()=>({}));
-  if(!r.ok||!d.id) throw new Error(d.error||('render-elevation '+r.status));
-  for(let i=0;i<40;i++){
-    await new Promise(res=>setTimeout(res,3000));
-    if(cap) cap.textContent='Rendering from the elevation drawing… '+(i*3+3)+'s';
-    const p=await (await fetch('/.netlify/functions/render-elevation?id='+encodeURIComponent(d.id))).json().catch(()=>({}));
-    if(p.status==='succeeded'&&p.image){
-      try{ const b=await (await fetch(p.image)).blob(); return await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=()=>res(p.image); fr.readAsDataURL(b); }); }catch(e){ return p.image; }
-    }
-    if(p.status==='failed'||p.status==='canceled') throw new Error(p.error||p.status);
-  }
-  throw new Error('rendering timed out');
+  try{ cleanDrawing(c); }catch(e){}
+  const image=c.toDataURL('image/jpeg',0.92);
+  const look=(desc?('Facade as drawn: '+desc+' '):'')+'Real materials with texture (brick, stucco, metal panel, glass as appropriate), glass with reflections and interior depth, real blue sky with soft clouds, concrete sidewalk and street, street trees, neighboring '+boro+' row buildings at the sides, soft daylight.';
+  // Pass 1 — FLUX Canny: geometry locked to the drawing's lines (floors, window grid, setbacks).
+  const geo=await elevationJob({mode:'canny',image,prompt:'Architectural photograph of a new '+m.floors+'-story '+wt+' building in '+boro+', New York City, exactly following the lines of the control image: outline, floor lines, every window and door opening, balconies, setbacks and roofline. '+look+' No text, letters, dimension lines or annotations.'},cap,'Pass 1/2 \u2014 locking geometry to the elevation\u2026');
+  // Pass 2 — FLUX Kontext: make it a real photograph without moving anything.
+  let out=geo;
+  try{
+    out=await elevationJob({mode:'kontext',image:geo,prompt:'Make this a real DSLR photograph of the finished building. Keep every floor, window, balcony, setback, roofline and storefront exactly where it is — do not add, remove or move anything; the building must keep exactly '+m.floors+' stories. '+look+' Remove any text, letters, labels or lines that are not part of the building.'},cap,'Pass 2/2 \u2014 making it photographic\u2026');
+  }catch(e){ console.warn('photo pass failed, using pass 1',e); }
+  try{ const b=await (await fetch(out)).blob(); return await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=()=>res(out); fr.readAsDataURL(b); }); }catch(e){ return out; }
 }
 function parseRenderFeatures(desc,m){
   // Extract visual cues from AI description to adjust the SVG
