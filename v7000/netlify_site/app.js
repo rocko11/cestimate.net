@@ -428,6 +428,7 @@ async function analyzePlans(){
     }
     if(!results.length) throw new Error(lastErr || 'no pages could be read');
     const {merged,missing}=mergeExtractions(results);
+    lastExtractResults=results;
     if(msg) msg.textContent='Reading floor areas, doors, windows, elevators & units in parallel…';
     const blank=k=>merged[k]==null||merged[k]===-1;
     const U0=(typeof merged.units==='number'&&merged.units>5)?merged.units:0;   // a schedule that lists fewer entry doors/windows than there are apartments lists TYPES, not counts: count from the plans instead
@@ -524,6 +525,8 @@ async function analyzePlans(){
     showExtractNote(results.length, files.length, missing, assumed);
     track('analysis_success',{pages_read:results.length});
     clearInterval(tick); hide('analyzing'); show('step-2'); setChip(2);
+    runEstimateReview(merged,assumed,missing,'plans');   // second-pass QA, non-blocking
+    runRoomSchedule(results).catch(e=>console.warn('room schedule',e));   // room-by-room SF check, non-blocking
   }catch(err){
     clearInterval(tick);
     track('analysis_failed',{error:String(err&&err.message).slice(0,100)});
@@ -929,6 +932,7 @@ function provIssues(){
 }
 function clearMetrics(){
   planInfo=null;
+  if(typeof clearReview==='function') clearReview();
   ['m-name','m-job','m-gfa','m-nsf','m-footprint','m-floors','m-units','m-f2f','m-perim',
    'm-windows','m-doors-entry','m-doors-stair','m-doors-int','m-hvac-cu','m-hvac-ah','m-exhaust','m-elev','m-exc-depth','m-soe-lf','m-underpin-lf','m-piles']
    .forEach(id=>setV(id,''));
@@ -1636,6 +1640,7 @@ async function estimateFromPrompt(){
     if(el) el.innerHTML='<span class="ai-badge">From description</span> &nbsp;Values were inferred from your project description. <strong>Review every field</strong> — inferred numbers are assumptions, not measured takeoff. Edit anything, then run the takeoff.'+
       (assumed.length?'<br><br><strong>Filled with NYC rules of thumb</strong> (not stated in your description): '+assumed.join(' · ')+'.':'');
     hide('analyzing'); show('step-2'); setChip(2);
+    runEstimateReview(parsed,assumed,[],'description');   // second-pass QA, non-blocking
   }catch(e){
     hide('analyzing'); show('step-1');
     alert('Could not generate from the description ('+e.message+'). Enter the metrics manually instead.');
@@ -1863,6 +1868,7 @@ async function exportExcelCore(ruleRows){
     const wsC=XLSX.utils.aoa_to_sheet(cmp); wsC['!cols']=[{wch:30},{wch:44},{wch:14},{wch:16},{wch:14},{wch:14},{wch:14}];
     XLSX.utils.book_append_sheet(wb,wsC,'Ours vs Market');
   }
+  try{ addAccuracySheets(wb); }catch(err){ console.warn('accuracy sheets',err); }
   XLSX.writeFile(wb, pname+(exportMode==='market'?'_MARKET_takeoff.xlsx':'_material_takeoff.xlsx'));
 }
 
@@ -2805,3 +2811,499 @@ loadPpi();
 loadScript('pricebook.js').catch(function(e){ console.warn('pricebook.js not loaded', e); });
 loadScript('dxf.js').catch(function(e){ console.warn('dxf.js not loaded', e); });
 loadScript('walls.js').catch(function(e){ console.warn('walls.js not loaded — wall measuring unavailable', e); });
+
+/* ============ ESTIMATE REVIEWER (second-pass QA) ============ */
+// After extraction, two independent checks run on the metrics before anything
+// is priced: (1) deterministic NYC multifamily sanity checks, no API call, and
+// (2) a second AI read of the numbers that looks for inconsistencies and
+// missing scope. Nothing here changes a value on its own — each finding has an
+// "Apply" button so the estimator confirms the change. Fields that were filled
+// with a rule of thumb (not read off the plans) are outlined until confirmed.
+const REVIEW_FIELDS={gfa:'m-gfa',nsf:'m-nsf',footprint:'m-footprint',floors:'m-floors',units:'m-units',
+  f2f:'m-f2f',perimeter:'m-perim',windows:'m-windows',doorsEntry:'m-doors-entry',doorsStair:'m-doors-stair',
+  doorsInterior:'m-doors-int',hvacCondensers:'m-hvac-cu',hvacIndoor:'m-hvac-ah',exhaustFans:'m-exhaust',
+  elevators:'m-elev',excavationDepth:'m-exc-depth',soeLF:'m-soe-lf',underpinningLF:'m-underpin-lf',pileCount:'m-piles'};
+const REVIEW_LABELS={gfa:'Total GFA',nsf:'Net SF',footprint:'Floor plate',floors:'Floors',units:'Units',
+  f2f:'Floor-to-floor',perimeter:'Perimeter',windows:'Windows',doorsEntry:'Entry doors',doorsStair:'Stair/fire doors',
+  doorsInterior:'Interior doors',hvacCondensers:'HVAC condensers',hvacIndoor:'HVAC indoor units',exhaustFans:'Exhaust fans',
+  elevators:'Elevators',excavationDepth:'Excavation depth',soeLF:'SOE (LF)',underpinningLF:'Underpinning (LF)',pileCount:'Piles'};
+// Map the "assumed" labels produced by fillDescriptionDefaults back to field keys.
+const ASSUMED_KEY={'floors':'floors','GFA (SF)':'gfa','footprint (SF)':'footprint','net SF (80% of GFA)':'nsf',
+  'perimeter (LF)':'perimeter',"floor-to-floor 10.5'":'f2f','windows (5/unit)':'windows','entry doors (1/unit + 2)':'doorsEntry',
+  'stair doors (2/floor)':'doorsStair','interior doors (6/unit)':'doorsInterior','AC condensers (1/unit)':'hvacCondensers',
+  'AC indoor units (2.5 rooms/unit)':'hvacIndoor','exhaust fans (2.5/unit)':'exhaustFans'};
+let reviewState={assumed:[],source:'plans',findings:[],running:false,ran:false};
+
+function reviewCSS(){
+  if(document.getElementById('review-css')) return;
+  const s=document.createElement('style'); s.id='review-css';
+  s.textContent=`
+  .needs-confirm{outline:2px solid #d97706 !important;outline-offset:1px;background:#fffbf4 !important}
+  .review-panel{margin-top:.9rem;border:1px solid var(--border,#e0dfd8);border-radius:10px;background:var(--card,#fff);padding:12px 14px;font-size:13px}
+  .review-panel .rv-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+  .review-panel .rv-title{font-weight:700;display:flex;align-items:center;gap:8px}
+  .review-panel .rv-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;text-transform:uppercase;letter-spacing:.03em;border:1px solid}
+  .rv-badge.high{color:#b5340b;background:#fdebe6;border-color:#f3b8a8}
+  .rv-badge.medium{color:#92400e;background:#fff5e0;border-color:#f0cf8a}
+  .rv-badge.low{color:#1f4f8f;background:#e8f0fb;border-color:#b6cdee}
+  .rv-badge.ok{color:#0F6E56;background:#e6f4ef;border-color:#9fd3bf}
+  .review-panel .rv-item{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-top:1px solid var(--border,#e0dfd8)}
+  .review-panel .rv-item:first-of-type{border-top:0}
+  .review-panel .rv-msg{flex:1;line-height:1.5}
+  .review-panel .rv-field{font-weight:600}
+  .review-panel button{font:inherit;font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid var(--border,#e0dfd8);background:#fff;cursor:pointer;white-space:nowrap}
+  .review-panel button.primary{background:var(--brand,#1a1a18);color:#fff;border-color:var(--brand,#1a1a18)}
+  .review-panel .rv-sub{color:var(--muted,#6b6a65);font-size:12px}
+  .review-panel .rv-status{color:var(--muted,#6b6a65);font-size:12px;padding:6px 0}`;
+  document.head.appendChild(s);
+}
+function reviewPanel(){
+  reviewCSS();
+  let el=document.getElementById('review-panel');
+  if(el) return el;
+  el=document.createElement('div'); el.id='review-panel'; el.className='review-panel';
+  const anchor=document.getElementById('extract-note');
+  if(anchor&&anchor.parentNode) anchor.parentNode.insertBefore(el,anchor.nextSibling);
+  else{ const s2=document.getElementById('step-2'); if(s2) s2.insertBefore(el,s2.firstChild); }
+  return el;
+}
+function reviewVals(){
+  const v={}; Object.keys(REVIEW_FIELDS).forEach(k=>{ const x=parseFloat(getV(REVIEW_FIELDS[k])); v[k]=Number.isFinite(x)?x:null; });
+  const ce=document.getElementById('m-cellar'); v.cellar=ce?+ce.value:(getV('m-cellar')!==''?+getV('m-cellar'):null);
+  const bs=document.getElementById('m-borough'); v.borough=bs&&bs.options[bs.selectedIndex]?bs.options[bs.selectedIndex].text:'';
+  const cs=document.getElementById('m-ctype'); v.constructionType=cs&&cs.options[cs.selectedIndex]?cs.options[cs.selectedIndex].text:'';
+  const os=document.getElementById('m-occ'); v.occupancy=os&&os.options[os.selectedIndex]?os.options[os.selectedIndex].text:'';
+  const wt=document.getElementById('m-worktype'); v.worktype=wt?wt.value:'';
+  return v;
+}
+function markAssumed(assumedLabels){
+  const keys=[]; (assumedLabels||[]).forEach(l=>{ const base=Object.keys(ASSUMED_KEY).find(p=>l.indexOf(p)===0); if(base) keys.push(ASSUMED_KEY[base]); });
+  reviewState.assumed=keys;
+  Object.keys(REVIEW_FIELDS).forEach(k=>{ const e=document.getElementById(REVIEW_FIELDS[k]); if(!e) return;
+    if(keys.includes(k)){ e.classList.add('needs-confirm'); e.title='Not read from the plans — filled with an NYC rule of thumb. Confirm or correct.';
+      e.addEventListener('input',function h(){ e.classList.remove('needs-confirm'); e.title=''; e.removeEventListener('input',h); }); }
+    else { e.classList.remove('needs-confirm'); e.title=''; }
+  });
+}
+function clearReview(){
+  reviewState={assumed:[],source:'plans',findings:[],running:false,ran:false};
+  const el=document.getElementById('review-panel'); if(el) el.innerHTML='';
+  Object.keys(REVIEW_FIELDS).forEach(k=>{ const e=document.getElementById(REVIEW_FIELDS[k]); if(e){ e.classList.remove('needs-confirm'); e.title=''; } });
+}
+// Deterministic checks. Ratios are typical NYC multifamily ranges; anything
+// outside gets flagged for a look, not auto-corrected.
+function localChecks(v){
+  const f=[]; const ok=x=>typeof x==='number'&&x>0;
+  const add=(field,severity,msg,suggest)=>f.push({field,severity,msg,suggest:(typeof suggest==='number'&&isFinite(suggest))?Math.round(suggest):null,src:'check'});
+  if(ok(v.gfa)&&ok(v.footprint)&&ok(v.floors)){
+    const calc=v.footprint*v.floors, d=Math.abs(calc-v.gfa)/v.gfa;
+    if(d>0.15) add('gfa','high',`GFA ${v.gfa.toLocaleString()} SF is ${(d*100).toFixed(0)}% off floor plate × floors (${calc.toLocaleString()} SF). One of GFA, floor plate or floor count is wrong — setbacks or a cellar can explain part of it.`,null);
+  }
+  if(ok(v.gfa)&&ok(v.nsf)){ const r=v.nsf/v.gfa;
+    if(r>0.95) add('nsf','high',`Net SF is ${(r*100).toFixed(0)}% of GFA — above 95% is not realistic once corridors, stairs and shafts are removed. Typical is 75–85%.`,v.gfa*0.8);
+    else if(r<0.6) add('nsf','medium',`Net SF is only ${(r*100).toFixed(0)}% of GFA — low for multifamily (typical 75–85%). Check whether NSF excludes something it should include.`,null); }
+  if(ok(v.gfa)&&ok(v.units)){ const s=v.gfa/v.units;
+    if(s<450) add('units','high',`${Math.round(s)} GSF per unit is too small — unit count is likely overcounted (door or room symbols counted as units) or GFA is a single floor.`,null);
+    else if(s>2200) add('units','medium',`${Math.round(s)} GSF per unit is large for NYC multifamily — unit count may be undercounted, or this is a low-density building.`,null); }
+  if(ok(v.units)&&ok(v.floors)){ const u=v.units/v.floors;
+    if(u>24) add('units','medium',`${u.toFixed(1)} units per floor is high — confirm the total is dwelling units, not rooms.`,null); }
+  if(ok(v.f2f)&&(v.f2f<8.5||v.f2f>16)) add('f2f','medium',`Floor-to-floor ${v.f2f}' is outside the usual 9'–14' range for residential floors.`,null);
+  if(ok(v.perimeter)&&ok(v.footprint)){ const minP=3.55*Math.sqrt(v.footprint), sq=4*Math.sqrt(v.footprint);
+    if(v.perimeter<minP) add('perimeter','high',`Perimeter ${v.perimeter.toLocaleString()} LF is geometrically impossible for a ${v.footprint.toLocaleString()} SF floor plate (minimum ≈ ${Math.round(minP)} LF).`,sq);
+    else if(v.perimeter>2.5*sq) add('perimeter','low',`Perimeter is very long for the floor plate — fine for an L/U-shaped building, otherwise check units (LF vs SF).`,null); }
+  if(ok(v.units)){
+    if(ok(v.windows)){ const w=v.windows/v.units; if(w<2) add('windows','medium',`${w.toFixed(1)} windows per unit is low — the window schedule may be partial (one sheet of several) or a typical floor was not multiplied.`,null);
+      else if(w>12) add('windows','medium',`${w.toFixed(1)} windows per unit is high — schedule rows may have been double counted.`,null); }
+    if(ok(v.doorsEntry)&&v.doorsEntry<v.units) add('doorsEntry','medium',`Only ${v.doorsEntry} entry doors for ${v.units} units — every unit needs an entry door, plus building entrances.`,v.units+2);
+    if(ok(v.doorsInterior)){ const d=v.doorsInterior/v.units; if(d<2) add('doorsInterior','low',`${d.toFixed(1)} interior doors per unit is low (typical 4–8).`,null); else if(d>12) add('doorsInterior','low',`${d.toFixed(1)} interior doors per unit is high (typical 4–8).`,null); }
+    if(ok(v.hvacCondensers)&&ok(v.hvacIndoor)&&v.hvacIndoor<v.hvacCondensers) add('hvacIndoor','medium',`Fewer indoor units (${v.hvacIndoor}) than condensers (${v.hvacCondensers}) — usually 1 condenser serves 1–4 indoor heads.`,null);
+    if(ok(v.exhaustFans)&&v.exhaustFans<v.units) add('exhaustFans','low',`${v.exhaustFans} exhaust fans for ${v.units} units — each bath and kitchen normally has one.`,null);
+  }
+  if(ok(v.floors)){
+    if(ok(v.doorsStair)&&v.doorsStair<v.floors) add('doorsStair','medium',`${v.doorsStair} stair doors for ${v.floors} floors — expect at least one per stair per floor.`,v.floors*2);
+    if(v.floors>=7&&!(ok(v.elevators))) add('elevators','high',`${v.floors} stories with no elevator — NYC generally requires an elevator in multiple dwellings over 6 stories. Confirm the count.`,1);
+  }
+  if(v.cellar===1&&!ok(v.excavationDepth)) add('excavationDepth','low',`Plans show a cellar but no excavation depth — foundation and SOE lines are priced on an assumption until this is filled.`,null);
+  if(ok(v.excavationDepth)&&v.excavationDepth>6&&!ok(v.soeLF)&&!ok(v.underpinningLF)) add('soeLF','medium',`Excavation ${v.excavationDepth}' deep with no SOE or underpinning length — a Brooklyn lot-line excavation this deep usually needs one or both.`,null);
+  reviewState.assumed.forEach(k=>{ if(!f.some(x=>x.field===k)) add(k,'low',`${REVIEW_LABELS[k]} was not found on the plans and was filled with a rule of thumb — confirm or correct.`,null); });
+  return f;
+}
+// Second, independent AI read of the numbers. Text only, through the same
+// Netlify function as extraction, so no new backend is needed.
+async function aiReview(v){
+  const lines=Object.keys(REVIEW_FIELDS).map(k=>`${k} (${REVIEW_LABELS[k]}): ${v[k]==null?'blank':v[k]}${reviewState.assumed.includes(k)?'  [RULE OF THUMB, not from plans]':''}`);
+  const prompt=`You are a senior NYC construction estimator doing an independent QA review of building metrics that another estimator extracted from a filed plan set. Your job is to catch errors BEFORE the estimate is priced.
+Source of the values: ${reviewState.source==='plans'?'AI extraction from DOB-filed drawings and schedules':'inferred from a written description (no drawings)'}.
+Borough: ${v.borough||'unknown'}. Construction type: ${v.constructionType||'unknown'}. Occupancy: ${v.occupancy||'unknown'}. Work type: ${v.worktype||'unknown'}. Cellar: ${v.cellar===1?'yes':v.cellar===0?'no':'unknown'}.
+
+VALUES:
+${lines.join('\n')}
+
+Check for: (a) values that contradict each other (areas vs floors, counts vs units, geometry); (b) counts that look like a partial schedule or a typical floor not multiplied; (c) values that look like a different quantity was read (e.g. zoning floor area vs gross, one floor vs whole building, rooms vs units); (d) scope that is missing for this kind of building in NYC (elevator, SOE/underpinning for a deep cellar, exhaust, sprinklers are priced elsewhere — only flag metrics in the list); (e) rule-of-thumb fields that look wrong for this building.
+Do NOT repeat a value back just to say it is fine. Report only real concerns, at most 8, most important first. If everything is consistent return an empty list.
+Return ONE JSON object, no markdown: {"findings":[{"field":"<one key from the list or null>","severity":"high"|"medium"|"low","issue":"<one or two sentences, specific numbers>","suggested":number|null}],"summary":"<one sentence overall confidence>"}`;
+  const text=await callExtractorText(prompt);
+  const j=parseJSON(text); if(!j||!Array.isArray(j.findings)) throw new Error('reviewer returned no findings');
+  return {findings:j.findings.slice(0,8).map(x=>({field:(x.field&&REVIEW_FIELDS[x.field])?x.field:null,severity:/high|medium|low/.test(x.severity)?x.severity:'low',
+    msg:String(x.issue||'').slice(0,400),suggest:(typeof x.suggested==='number'&&isFinite(x.suggested))?Math.round(x.suggested*100)/100:null,src:'ai'})),summary:String(j.summary||'')};
+}
+function applyReviewFix(i){
+  const f=reviewState.findings[i]; if(!f||f.suggest==null||!f.field) return;
+  const e=document.getElementById(REVIEW_FIELDS[f.field]); if(!e) return;
+  e.value=f.suggest; e.classList.remove('needs-confirm'); e.title='';
+  f.applied=true; renderReview();
+  track('review_fix_applied',{field:f.field,src:f.src});
+}
+function renderReview(summary){
+  const el=reviewPanel(); const fs=reviewState.findings; const order={high:0,medium:1,low:2};
+  const sorted=fs.map((f,i)=>Object.assign({_i:i},f)).sort((a,b)=>order[a.severity]-order[b.severity]);
+  const hi=fs.filter(x=>x.severity==='high'&&!x.applied).length, md=fs.filter(x=>x.severity==='medium'&&!x.applied).length;
+  const badge=reviewState.running?'<span class="rv-badge low">Reviewing…</span>':hi?`<span class="rv-badge high">${hi} high</span>`:md?`<span class="rv-badge medium">${md} to check</span>`:'<span class="rv-badge ok">Consistent</span>';
+  let h=`<div class="rv-head"><div class="rv-title">Estimate review ${badge}</div><button onclick="runEstimateReview()" ${reviewState.running?'disabled':''}>Re-run review</button></div>`;
+  h+=`<div class="rv-sub">Second pass before pricing: NYC sanity checks plus an independent AI read of the numbers. Nothing changes until you click Apply.${summary?' <em>'+esc2(summary)+'</em>':''}</div>`;
+  if(reviewState.running&&!fs.length) h+='<div class="rv-status">Running checks…</div>';
+  else if(!fs.length&&reviewState.ran) h+='<div class="rv-status">No inconsistencies found. Still verify any outlined fields before bidding.</div>';
+  sorted.forEach(f=>{
+    const lbl=f.field?`<span class="rv-field">${esc2(REVIEW_LABELS[f.field])}:</span> `:'';
+    const btn=f.applied?'<span class="rv-badge ok">Applied</span>':(f.suggest!=null&&f.field?`<button class="primary" onclick="applyReviewFix(${f._i})">Apply ${esc2(f.suggest.toLocaleString())}</button>`:'');
+    h+=`<div class="rv-item"><span class="rv-badge ${f.severity}">${f.severity}</span><div class="rv-msg">${lbl}${esc2(f.msg)} <span class="rv-sub">(${f.src==='ai'?'AI review':'check'})</span></div>${btn}</div>`;
+  });
+  el.innerHTML=h;
+}
+async function runEstimateReview(merged,assumed,missing,source){
+  if(source) reviewState.source=source;
+  if(assumed) markAssumed(assumed);
+  const v=reviewVals();
+  reviewState.findings=localChecks(v); reviewState.running=true; reviewState.ran=true;
+  renderReview();
+  let summary='';
+  try{ const r=await aiReview(v);
+    r.findings.forEach(a=>{ if(!reviewState.findings.some(b=>b.field&&b.field===a.field&&b.severity===a.severity)) reviewState.findings.push(a); });
+    summary=r.summary;
+    track('review_done',{local:reviewState.findings.filter(x=>x.src==='check').length,ai:r.findings.length});
+  }catch(e){ console.warn('AI review skipped:',e&&e.message); summary='AI review unavailable ('+((e&&e.message)||'error')+') — local checks only.'; }
+  reviewState.running=false; renderReview(summary);
+}
+
+/* ============ ACCURACY TOOLKIT ============ */
+// Four additions that work together:
+//  1. Room schedule read from the floor plans (room-by-room SF, cross-checks NSF
+//     and the AC-room count instead of trusting a single extracted number).
+//  2. Price-list import: supplier quotes / past bids (CSV or Excel) override the
+//     built-in market prices line by line, with a visible "price list" badge.
+//  3. Versions & variance: save a version, compare a revised plan set against it
+//     (added / removed / changed quantities and dollars), like an addenda report.
+//  4. Provenance: every metric remembers where it came from (schedule, plans,
+//     room schedule, rule of thumb, description, manual) and the Excel export
+//     gets a "Sources & QA" sheet with the review findings.
+let lastExtractResults=null, lastRooms=null, metricSource={}, priceList=null, versionCompare=null;
+const TK_LS_PL='cest-pricelist-v1', TK_LS_VER='cest-versions-v1';
+
+function tkCSS(){
+  if(document.getElementById('tk-css')) return;
+  const s=document.createElement('style'); s.id='tk-css';
+  s.textContent=`
+  .tk-panel{margin-top:.9rem;border:1px solid var(--border,#e0dfd8);border-radius:10px;background:var(--card,#fff);padding:12px 14px;font-size:13px}
+  .tk-panel h4{font-size:13px;font-weight:700;margin:0 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .tk-panel .tk-sub{color:var(--muted,#6b6a65);font-size:12px;margin-bottom:8px}
+  .tk-panel table{width:100%;border-collapse:collapse;font-size:12px}
+  .tk-panel th,.tk-panel td{padding:4px 6px;border-bottom:1px solid var(--border,#e0dfd8);text-align:left;vertical-align:top}
+  .tk-panel td.num,.tk-panel th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .tk-panel button,.tk-panel label.btn{font:inherit;font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid var(--border,#e0dfd8);background:#fff;cursor:pointer;white-space:nowrap;display:inline-block}
+  .tk-panel button.primary{background:var(--brand,#1a1a18);color:#fff;border-color:var(--brand,#1a1a18)}
+  .tk-panel select,.tk-panel input[type=text]{font:inherit;font-size:12px;padding:4px 6px;border:1px solid var(--border,#e0dfd8);border-radius:6px}
+  .tk-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0}
+  .tk-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;text-transform:uppercase;letter-spacing:.03em;border:1px solid}
+  .tk-badge.pl{color:#0F6E56;background:#e6f4ef;border-color:#9fd3bf}
+  .tk-badge.src{color:#534AB7;background:#eeedfe;border-color:#c7c3f2}
+  .tk-badge.warn{color:#92400e;background:#fff5e0;border-color:#f0cf8a}
+  .tk-badge.add{color:#0F6E56;background:#e6f4ef;border-color:#9fd3bf}
+  .tk-badge.rm{color:#b5340b;background:#fdebe6;border-color:#f3b8a8}
+  .tk-status{color:var(--muted,#6b6a65);font-size:12px;padding:4px 0}
+  .tk-rooms-wrap{max-height:320px;overflow:auto;margin-top:6px}
+  .tk-pl-badge{font-size:10px;font-weight:700;color:#0F6E56;background:#e6f4ef;border:1px solid #9fd3bf;padding:1px 5px;border-radius:4px;margin-left:4px}`;
+  document.head.appendChild(s);
+}
+function tkPanel(id,afterEl,before){
+  tkCSS(); let el=document.getElementById(id); if(el) return el;
+  el=document.createElement('div'); el.id=id; el.className='tk-panel';
+  if(afterEl&&afterEl.parentNode){ if(before) afterEl.parentNode.insertBefore(el,afterEl); else afterEl.parentNode.insertBefore(el,afterEl.nextSibling); }
+  return el;
+}
+function tkFmt(n){ return Math.round(n).toLocaleString(); }
+
+/* ---------- 1. ROOM SCHEDULE FROM PLANS ---------- */
+const ROOM_TILE_PROMPT=`You are reading ONE TILE cut from an architectural floor plan (NYC DOB filing). List every ROOM whose NAME LABEL is printed inside this tile. Tiles do not overlap, so a room counts only where its label is.
+For each room return: "name" = the label as printed (e.g. "BEDROOM", "LIVING/DINING", "BATH", "KITCHEN", "CORRIDOR", "STAIR A"); "unit" = apartment/unit ID printed for that room or nearby (e.g. "3A", "APT 2"), else null; "sf" = the square-footage number printed with the label (e.g. "BEDROOM 92 SF" → 92), else null; "dims" = printed room dimensions string (e.g. "12'-0\\" x 10'-6\\""), else null; "window" = 1 if the room has a window on an exterior or court wall, or a "LIGHT PROP."/"VENT PROP." note, else 0; "kind" = one of "habitable" (bedroom, living, dining, study, den), "kitchen", "bath", "closet", "corridor", "stair", "mech" (mechanical, electrical, meter, boiler, trash, elevator machine), "lobby", "other".
+Do not invent rooms or numbers. If no rooms are labeled in this tile return an empty list.
+Return JSON only: {"rooms":[{"name":string,"unit":string|null,"sf":number|null,"dims":string|null,"window":0|1,"kind":string}]}`;
+function parseFeet(s){ // "12'-6\"" / "12'6" / "12.5'" / "12" -> feet (number)
+  if(s==null) return null; const t=String(s).replace(/[”″]/g,'"').replace(/[’′]/g,"'").trim();
+  let m=t.match(/(\d+(?:\.\d+)?)\s*'\s*-?\s*(\d+(?:\.\d+)?)?\s*(?:"|''|in)?/);
+  if(m) return +m[1]+((m[2]?+m[2]:0)/12);
+  m=t.match(/^(\d+(?:\.\d+)?)$/); return m?+m[1]:null;
+}
+function sfFromDims(d){
+  if(!d) return null; const parts=String(d).toLowerCase().split(/\s*(?:x|×|by)\s*/); if(parts.length<2) return null;
+  const a=parseFeet(parts[0]), b=parseFeet(parts[1]); if(!a||!b||a>200||b>200) return null; return Math.round(a*b);
+}
+async function roomsOnSheet(entry,pageIdx,onTile){
+  const c=await renderPageCanvas(entry,pageIdx,3200);
+  const cols=c.width>=c.height?2:1, rows=c.width>=c.height?1:2;   // halves: room labels are large enough
+  const tw=Math.ceil(c.width/cols), th=Math.ceil(c.height/rows); const tiles=[];
+  for(let r=0;r<rows;r++) for(let q=0;q<cols;q++){ const t=document.createElement('canvas'); t.width=Math.min(tw,c.width-q*tw); t.height=Math.min(th,c.height-r*th);
+    t.getContext('2d').drawImage(c,q*tw,r*th,t.width,t.height,0,0,t.width,t.height); tiles.push(t.toDataURL('image/jpeg',0.9).split(',')[1]); }
+  const out=[]; let done=0;
+  const run=async b64=>{ for(let a=0;a<2;a++){ try{ const j=parseJSON(await callExtractor([{media_type:'image/jpeg',data:b64}],'',ROOM_TILE_PROMPT));
+      if(j&&Array.isArray(j.rooms)) j.rooms.forEach(r=>{ if(!r||!r.name) return; let sf=(typeof r.sf==='number'&&r.sf>0&&r.sf<5000)?Math.round(r.sf):null; let basis='printed SF';
+        if(sf==null){ sf=sfFromDims(r.dims); basis=sf?'from dimensions':'no size'; }
+        out.push({name:String(r.name).trim().toUpperCase().slice(0,40),unit:r.unit?String(r.unit).trim().toUpperCase().slice(0,12):null,sf,basis,window:r.window===1?1:0,kind:/^(habitable|kitchen|bath|closet|corridor|stair|mech|lobby|other)$/.test(r.kind)?r.kind:'other'}); });
+      break; }catch(e){ if(a===1) console.warn('room tile failed',e); } } done++; if(onTile) onTile(done,tiles.length); };
+  for(let i=0;i<tiles.length;i+=2) await Promise.all(tiles.slice(i,i+2).map(run));
+  return out;
+}
+const NET_KINDS={habitable:1,kitchen:1,bath:1,closet:1,other:1};   // inside dwelling units; corridor/stair/mech/lobby are common area
+function roomTotals(sheets){
+  let net=0,gross=0,ac=0,n=0,unsized=0; const byKind={};
+  (sheets||[]).forEach(s=>s.rooms.forEach(r=>{ n+=s.mult; const sf=(r.sf||0)*s.mult; gross+=sf; if(NET_KINDS[r.kind]) net+=sf; if(!r.sf) unsized+=s.mult;
+    byKind[r.kind]=(byKind[r.kind]||0)+sf; if(NET_KINDS[r.kind]&&r.kind!=='bath'&&r.kind!=='closet'&&r.window&&r.sf>=64) ac+=s.mult; }));
+  return {net,gross,ac,n,unsized,byKind};
+}
+async function runRoomSchedule(results){
+  const anchor=document.getElementById('review-panel')||document.getElementById('extract-note');
+  const el=tkPanel('tk-rooms',anchor);
+  const seen=new Set(); const plans=[];
+  (results||[]).forEach(r=>{ if(!r||r.sheetKind!=='floor_plan'||!r._entry||typeof r._page!=='number') return;
+    const key=(r.sheetNumber||'').replace(/\s/g,'').toUpperCase()||(r._entry.name+'#'+r._page); if(seen.has(key)) return; seen.add(key); plans.push(r); });
+  if(!plans.length){ el.innerHTML='<h4>Room schedule <span class="tk-badge warn">no floor plans</span></h4><div class="tk-sub">No proposed floor-plan sheets were recognized in the upload, so rooms could not be read. Upload the A-1xx floor plans to get a room-by-room check.</div>'; return; }
+  el.innerHTML=`<h4>Room schedule <span class="tk-badge src">reading ${plans.length} floor plan${plans.length>1?'s':''}…</span></h4><div class="tk-status" id="tk-rooms-status">Starting…</div>`;
+  const sheets=[];
+  for(let i=0;i<plans.length;i++){ const r=plans[i]; const label=r.sheetNumber||r.floorLabel||('page '+(r._page+1));
+    const st=document.getElementById('tk-rooms-status'); if(st) st.textContent=`Reading rooms on ${label} (${i+1} of ${plans.length})…`;
+    try{ const rooms=await roomsOnSheet(r._entry,r._page,(d,n)=>{ const s2=document.getElementById('tk-rooms-status'); if(s2) s2.textContent=`${label}: section ${d} of ${n}`; });
+      const mult=(typeof r.typicalFloors==='number'&&r.typicalFloors>1&&r.typicalFloors<60)?Math.round(r.typicalFloors):1;
+      sheets.push({sheet:label,floor:r.floorLabel||'',mult,rooms}); }catch(e){ console.warn('rooms',label,e); }
+  }
+  lastRooms=sheets; renderRoomSchedule(); track('rooms_read',{sheets:sheets.length,rooms:roomTotals(sheets).n});
+  if(typeof runEstimateReview==='function'&&reviewState&&reviewState.ran) runEstimateReview();   // re-check NSF / AC with room data
+}
+function renderRoomSchedule(){
+  const el=document.getElementById('tk-rooms'); if(!el||!lastRooms) return;
+  const t=roomTotals(lastRooms); const cur=+getV('m-nsf')||0, curAc=+getV('m-hvac-ah')||0;
+  const dNsf=cur>0&&t.net>0?((t.net-cur)/cur*100):null;
+  let h=`<h4>Room schedule <span class="tk-badge src">from plans</span> <span class="tk-sub">${t.n} rooms on ${lastRooms.length} sheet${lastRooms.length>1?'s':''}${t.unsized?` · ${t.unsized} without a printed size`:''}</span></h4>`;
+  h+=`<div class="tk-row"><span><strong>Net SF in units: ${tkFmt(t.net)}</strong>${dNsf!=null?` <span class="tk-badge ${Math.abs(dNsf)>10?'warn':'src'}">${dNsf>0?'+':''}${dNsf.toFixed(0)}% vs entered ${tkFmt(cur)}</span>`:''}</span>`+
+     `<button onclick="useRoomNsf()">Use as Net SF</button><span>Common area: ${tkFmt(t.gross-t.net)} SF</span>`+
+     `<span><strong>AC-eligible rooms: ${t.ac}</strong>${curAc?` (entered ${curAc})`:''}</span><button onclick="useRoomAc()">Use as HVAC indoor</button></div>`;
+  h+='<div class="tk-sub">Rooms ≥ 64 SF with a window, excluding baths and closets, count as AC-eligible. Rooms with no printed size are listed but add 0 SF — fill them in from the dimensioned drawing.</div>';
+  h+='<div class="tk-rooms-wrap"><table><tr><th>Sheet</th><th>Unit</th><th>Room</th><th>Kind</th><th class="num">SF</th><th>Window</th><th>Basis</th></tr>';
+  lastRooms.forEach((s,si)=>s.rooms.forEach((r,ri)=>{ h+=`<tr><td>${esc2(s.sheet)}${s.mult>1?' ×'+s.mult:''}</td><td>${esc2(r.unit||'')}</td><td>${esc2(r.name)}</td><td>${esc2(r.kind)}</td><td class="num"><input type="text" inputmode="decimal" style="width:60px;text-align:right" value="${r.sf==null?'':r.sf}" onchange="setRoomSf(${si},${ri},this.value)"></td><td>${r.window?'yes':''}</td><td>${esc2(r.basis)}</td></tr>`; }));
+  h+='</table></div>';
+  el.innerHTML=h;
+}
+function setRoomSf(si,ri,v){ const r=lastRooms&&lastRooms[si]&&lastRooms[si].rooms[ri]; if(!r) return; const n=parseFloat(v); r.sf=Number.isFinite(n)&&n>0?Math.round(n):null; r.basis='entered'; renderRoomSchedule(); }
+function useRoomNsf(){ const t=roomTotals(lastRooms); if(!t.net) return; setV('m-nsf',Math.round(t.net)); metricSource.nsf='room schedule'; const e=document.getElementById('m-nsf'); if(e){ e.classList.remove('needs-confirm'); e.title=''; } renderRoomSchedule(); if(typeof runEstimateReview==='function') runEstimateReview(); }
+function useRoomAc(){ const t=roomTotals(lastRooms); setV('m-hvac-ah',t.ac); metricSource.hvacIndoor='room schedule'; const e=document.getElementById('m-hvac-ah'); if(e){ e.classList.remove('needs-confirm'); e.title=''; } renderRoomSchedule(); }
+
+/* ---------- 2. PRICE LIST IMPORT ---------- */
+const PL_STOP=new Set(['and','or','the','of','for','with','per','in','to','a','an','incl','inc','installed','supply','install','furnish','sf','lf','ea','cy','ls','ton','each']);
+function plTokens(s){ return new Set(String(s||'').toLowerCase().replace(/[—–]/g,' ').replace(/[^a-z0-9 ]+/g,' ').split(/\s+/).filter(w=>w.length>1&&!PL_STOP.has(w)).map(w=>w.replace(/s$/,''))); }
+function plScore(a,b){ const A=plTokens(a),B=plTokens(b); if(!A.size||!B.size) return 0; let inter=0; A.forEach(w=>{ if(B.has(w)) inter++; }); const j=inter/(A.size+B.size-inter); const cover=inter/Math.min(A.size,B.size); return Math.max(j,cover*0.85); }
+function plParseRows(aoa){ // find header row and columns
+  let hi=-1, col={};
+  for(let i=0;i<Math.min(aoa.length,15);i++){ const row=(aoa[i]||[]).map(x=>String(x||'').toLowerCase().trim());
+    const name=row.findIndex(h=>/^(item|description|name|material|work item|scope|line)/.test(h)); const price=row.findIndex(h=>/(unit (price|cost|rate)|price|rate|cost|\$)/.test(h)&&!/total|ext/.test(h));
+    if(name>=0&&price>=0){ hi=i; col={name,price,unit:row.findIndex(h=>/^(unit|uom|um)$/.test(h)),div:row.findIndex(h=>/^(div|division|csi)/.test(h)),vendor:row.findIndex(h=>/(vendor|supplier|sub|source)/.test(h)),date:row.findIndex(h=>/date|quote/.test(h))}; break; } }
+  if(hi<0){ col={name:0,price:1,unit:2,div:-1,vendor:-1,date:-1}; hi=-1; }   // headerless: name, price, unit
+  const rows=[];
+  for(let i=hi+1;i<aoa.length;i++){ const r=aoa[i]||[]; const n=String(r[col.name]||'').trim(); const p=parseFloat(String(r[col.price]||'').replace(/[$,\s]/g,'')); if(!n||!Number.isFinite(p)||p<=0) continue;
+    rows.push({name:n,price:p,unit:col.unit>=0?String(r[col.unit]||'').trim().toUpperCase():'',div:col.div>=0?String(r[col.div]||'').trim():'',vendor:col.vendor>=0?String(r[col.vendor]||'').trim():'',date:col.date>=0?String(r[col.date]||'').trim():''}); }
+  return rows;
+}
+async function importPriceList(input){
+  const f=input.files&&input.files[0]; if(!f) return; input.value='';
+  try{ await ensureXLSX(); const buf=await f.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'}); let rows=[];
+    wb.SheetNames.forEach(sn=>{ const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:false,defval:''}); rows=rows.concat(plParseRows(aoa)); });
+    if(!rows.length) throw new Error('no rows with an item name and a unit price were found (expected columns like Item, Unit, Unit Price)');
+    priceList={file:f.name,loaded:new Date().toISOString().slice(0,10),rows,matches:{}};
+    matchPriceList(); try{ localStorage.setItem(TK_LS_PL,JSON.stringify(priceList)); }catch(e){}
+    track('pricelist_import',{rows:rows.length,matched:Object.keys(priceList.matches).length});
+    recalc();
+  }catch(e){ alert('Could not import the price list: '+e.message); }
+}
+function matchPriceList(){
+  if(!priceList) return; const m=metrics(); const divs=buildTakeoff(m); const items=[];
+  divs.forEach(d=>d.items.forEach(it=>items.push({id:slug(d.div.split('·')[0])+'-'+slug(it.n),n:it.n,u:String(it.u||'').toUpperCase(),div:d.div})));
+  customRows.forEach((c,i)=>items.push({id:'custom-'+i,n:c.n,u:String(c.u||'').toUpperCase(),div:c.div}));
+  priceList.matches={}; priceList.unmatched=[];
+  priceList.rows.forEach(r=>{ let best=null,bs=0; items.forEach(it=>{ let s=plScore(r.name,it.n); if(r.unit&&it.u&&r.unit!==it.u) s*=0.6; if(s>bs){ bs=s; best=it; } });
+    if(best&&bs>=0.45){ const prev=priceList.matches[best.id]; if(!prev||prev.score<bs) priceList.matches[best.id]={price:r.price,from:r.name,score:bs,unit:r.unit,vendor:r.vendor,date:r.date,unitMismatch:!!(r.unit&&best.u&&r.unit!==best.u),itemUnit:best.u}; }
+    else priceList.unmatched.push(r.name); });
+}
+function applyPriceList(){
+  if(!priceList||!priceList.matches) return;
+  Object.keys(priceList.matches).forEach(id=>{ const mt=priceList.matches[id]; if(mt.unitMismatch) return; const o=overrides[id]||(overrides[id]={}); if(o.pManual) return; o.p=mt.price; o.pSrc='pricelist'; });
+}
+function clearPriceList(){ if(priceList&&priceList.matches) Object.keys(priceList.matches).forEach(id=>{ const o=overrides[id]; if(o&&o.pSrc==='pricelist'){ delete o.p; delete o.pSrc; } }); priceList=null; try{ localStorage.removeItem(TK_LS_PL); }catch(e){} recalc(); }
+function markPriceRows(){
+  const tb=document.getElementById('takeoff-body'); if(!tb||!priceList) return;
+  [...tb.querySelectorAll('tr')].forEach(tr=>{ const inp=tr.querySelector('input[type=number]'); if(!inp) return; const m=(inp.getAttribute('oninput')||'').match(/setOv\('([^']+)'/); if(!m) return; const mt=priceList.matches[m[1]]; if(!mt||mt.unitMismatch) return;
+    const o=overrides[m[1]]; if(!o||o.pSrc!=='pricelist') return; const td=tr.children[0]; if(td&&!td.querySelector('.tk-pl-badge')){ const b=document.createElement('span'); b.className='tk-pl-badge'; b.title=`From price list: "${mt.from}"${mt.vendor?' · '+mt.vendor:''}${mt.date?' · '+mt.date:''}`; b.textContent='price list'; td.appendChild(b); } });
+}
+function renderPriceListPanel(){
+  const tb=document.getElementById('takeoff-body'); const tbl=tb&&tb.closest('table'); if(!tbl) return;
+  const el=tkPanel('tk-pricelist',tbl,true);
+  let h='<h4>Price list <span class="tk-sub">supplier quotes, sub bids or past jobs — CSV or Excel with Item, Unit, Unit Price columns</span></h4>';
+  h+='<div class="tk-row"><label class="btn">Import price list<input type="file" accept=".csv,.xlsx,.xls" style="display:none" onchange="importPriceList(this)"></label>';
+  if(priceList){ const n=Object.keys(priceList.matches||{}).length, mm=Object.values(priceList.matches||{}).filter(x=>x.unitMismatch).length;
+    h+=`<span class="tk-badge pl">${priceList.file}</span><span>${n-mm} of ${priceList.rows.length} rows matched to takeoff lines${mm?`, ${mm} skipped (unit mismatch)`:''}${priceList.unmatched&&priceList.unmatched.length?`, ${priceList.unmatched.length} unmatched`:''}</span><button onclick="clearPriceList()">Remove</button>`;
+    if(priceList.unmatched&&priceList.unmatched.length) h+=`<div class="tk-sub" style="width:100%">Unmatched: ${priceList.unmatched.slice(0,12).map(esc2).join(' · ')}${priceList.unmatched.length>12?' …':''}. Rename these rows to match the takeoff line names, or add them as custom rows.</div>`;
+    const mis=Object.entries(priceList.matches||{}).filter(([k,x])=>x.unitMismatch); if(mis.length) h+=`<div class="tk-sub" style="width:100%">Skipped, unit differs: ${mis.slice(0,8).map(([k,x])=>esc2(x.from+' ('+x.unit+' vs '+x.itemUnit+')')).join(' · ')}</div>`;
+  } else h+='<span class="tk-sub">No price list loaded — lines use built-in NYC market pricing. Your own numbers beat any generic table.</span>';
+  h+='</div>'; el.innerHTML=h;
+}
+
+/* ---------- 3. VERSIONS & VARIANCE ---------- */
+function tkVersions(){ try{ return JSON.parse(localStorage.getItem(TK_LS_VER)||'{}'); }catch(e){ return {}; } }
+function tkProjectKey(){ return (getV('m-name')||'untitled').trim().toLowerCase().replace(/[^a-z0-9]+/g,'-'); }
+function snapshotEstimate(){
+  const mv={}; Object.keys(REVIEW_FIELDS).forEach(k=>mv[k]=getV(REVIEW_FIELDS[k]));
+  return {at:new Date().toISOString(),metrics:mv,sources:Object.assign({},metricSource),rows:(lastRows||[]).filter(r=>!r.excl).map(r=>({div:r.div,name:r.name,qty:+r.qty||0,unit:r.unit,price:+r.price||0,ext:Math.round(r.ext||0)})),
+    totals:lastTotals?{direct:Math.round(lastTotals.direct),grand:Math.round(lastTotals.grand),psf:Math.round(lastTotals.psf||0)}:null,rooms:lastRooms?roomTotals(lastRooms):null,priceList:priceList?priceList.file:null};
+}
+function saveVersion(){
+  if(!lastTotals||!lastTotals.grand){ alert('Run the takeoff first.'); return; }
+  const all=tkVersions(); const key=tkProjectKey(); const list=all[key]||[]; const label=prompt('Version label', 'v'+(list.length+1)+(list.length?' — revised plans':' — base')); if(label===null) return;
+  list.push(Object.assign({label},snapshotEstimate())); all[key]=list.slice(-12);
+  try{ localStorage.setItem(TK_LS_VER,JSON.stringify(all)); }catch(e){ alert('Could not save (browser storage full or blocked).'); return; }
+  track('version_saved',{n:list.length}); renderVersionPanel();
+}
+function exportVersions(){ const all=tkVersions(); const key=tkProjectKey(); const blob=new Blob([JSON.stringify({project:key,versions:all[key]||[]},null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=key+'_versions.json'; a.click(); }
+function importVersions(input){ const f=input.files&&input.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ try{ const d=JSON.parse(r.result); const all=tkVersions(); const key=tkProjectKey(); all[key]=(all[key]||[]).concat(d.versions||[]).slice(-12); localStorage.setItem(TK_LS_VER,JSON.stringify(all)); renderVersionPanel(); }catch(e){ alert('Not a versions file.'); } }; r.readAsText(f); input.value=''; }
+function compareVersion(idx){
+  const list=tkVersions()[tkProjectKey()]||[]; const v=list[+idx]; if(!v){ versionCompare=null; renderVersionPanel(); return; }
+  const cur=snapshotEstimate(); const key=r=>r.div+'|'+r.name; const old={}; v.rows.forEach(r=>old[key(r)]=r); const now={}; cur.rows.forEach(r=>now[key(r)]=r);
+  const lines=[];
+  cur.rows.forEach(r=>{ const o=old[key(r)]; if(!o) lines.push({k:'added',div:r.div,name:r.name,unit:r.unit,q0:0,q1:r.qty,e0:0,e1:r.ext}); else if(Math.abs(o.qty-r.qty)>0.05||Math.abs(o.ext-r.ext)>1) lines.push({k:'changed',div:r.div,name:r.name,unit:r.unit,q0:o.qty,q1:r.qty,e0:o.ext,e1:r.ext}); });
+  v.rows.forEach(r=>{ if(!now[key(r)]) lines.push({k:'removed',div:r.div,name:r.name,unit:r.unit,q0:r.qty,q1:0,e0:r.ext,e1:0}); });
+  const metricsChanged=Object.keys(REVIEW_FIELDS).filter(k=>String(v.metrics[k]??'')!==String(cur.metrics[k]??'')).map(k=>({field:k,label:REVIEW_LABELS[k],v0:v.metrics[k],v1:cur.metrics[k]}));
+  versionCompare={label:v.label,at:v.at,lines,metricsChanged,grand0:v.totals?v.totals.grand:0,grand1:cur.totals?cur.totals.grand:0};
+  track('version_compared',{lines:lines.length}); renderVersionPanel();
+}
+function renderVersionPanel(){
+  const tb=document.getElementById('takeoff-body'); const tbl=tb&&tb.closest('table'); if(!tbl) return;
+  const el=tkPanel('tk-versions',tbl,true); const list=tkVersions()[tkProjectKey()]||[];
+  let h='<h4>Versions &amp; addenda <span class="tk-sub">save the estimate, then compare a revised plan set against it</span></h4><div class="tk-row">';
+  h+='<button class="primary" onclick="saveVersion()">Save version</button>';
+  if(list.length){ h+=`<select onchange="compareVersion(this.value)"><option value="">Compare with…</option>${list.map((v,i)=>`<option value="${i}"${versionCompare&&versionCompare.label===v.label?' selected':''}>${esc2(v.label)} · ${v.at.slice(0,10)} · $${tkFmt(v.totals?v.totals.grand:0)}</option>`).join('')}</select>`; h+='<button onclick="exportVersions()">Export versions</button>'; }
+  h+='<label class="btn">Import versions<input type="file" accept=".json" style="display:none" onchange="importVersions(this)"></label>';
+  h+='<span class="tk-sub">Stored in this browser only — export to keep a copy.</span></div>';
+  if(versionCompare){ const vc=versionCompare; const d=vc.grand1-vc.grand0;
+    h+=`<div class="tk-row"><strong>${esc2(vc.label)} → current:</strong> <span>total $${tkFmt(vc.grand0)} → $${tkFmt(vc.grand1)} (<strong>${d>=0?'+':'−'}$${tkFmt(Math.abs(d))}</strong>${vc.grand0?`, ${(d/vc.grand0*100).toFixed(1)}%`:''})</span> <span class="tk-badge add">${vc.lines.filter(x=>x.k==='added').length} added</span><span class="tk-badge rm">${vc.lines.filter(x=>x.k==='removed').length} removed</span><span class="tk-badge warn">${vc.lines.filter(x=>x.k==='changed').length} changed</span><button onclick="versionCompare=null;renderVersionPanel()">Close</button></div>`;
+    if(vc.metricsChanged.length) h+='<div class="tk-sub">Metrics changed: '+vc.metricsChanged.map(m=>`${esc2(m.label)} ${esc2(m.v0||'blank')} → ${esc2(m.v1||'blank')}`).join(' · ')+'</div>';
+    if(vc.lines.length){ h+='<div class="tk-rooms-wrap"><table><tr><th></th><th>Item</th><th class="num">Qty before</th><th class="num">Qty now</th><th>Unit</th><th class="num">$ before</th><th class="num">$ now</th><th class="num">Δ $</th></tr>';
+      vc.lines.sort((a,b)=>Math.abs(b.e1-b.e0)-Math.abs(a.e1-a.e0)).forEach(l=>{ h+=`<tr><td><span class="tk-badge ${l.k==='added'?'add':l.k==='removed'?'rm':'warn'}">${l.k}</span></td><td>${esc2(l.name)}<div class="tk-sub">${esc2(l.div)}</div></td><td class="num">${(+l.q0).toFixed(1)}</td><td class="num">${(+l.q1).toFixed(1)}</td><td>${esc2(l.unit)}</td><td class="num">$${tkFmt(l.e0)}</td><td class="num">$${tkFmt(l.e1)}</td><td class="num">${l.e1-l.e0>=0?'+':'−'}$${tkFmt(Math.abs(l.e1-l.e0))}</td></tr>`; });
+      h+='</table></div>'; } else h+='<div class="tk-status">No line changes between that version and now.</div>'; }
+  el.innerHTML=h;
+}
+
+/* ---------- 4. PROVENANCE + EXPORT SHEETS ---------- */
+function setMetricSources(assumedLabels,source){
+  const keys=[]; (assumedLabels||[]).forEach(l=>{ const base=Object.keys(ASSUMED_KEY).find(p=>l.indexOf(p)===0); if(base) keys.push(ASSUMED_KEY[base]); });
+  Object.keys(REVIEW_FIELDS).forEach(k=>{ if(metricSource[k]==='manual'||metricSource[k]==='room schedule') return; const has=getV(REVIEW_FIELDS[k])!=='';
+    if(!has) metricSource[k]='blank'; else if(keys.includes(k)) metricSource[k]='rule of thumb'; else if(source==='description') metricSource[k]='description';
+    else if(planInfo&&((k.indexOf('doors')===0&&planInfo.doors==='plans')||(k==='windows'&&planInfo.windows==='plans')||(k==='hvacIndoor'&&planInfo.ac==='plans'))) metricSource[k]='counted on floor plans';
+    else metricSource[k]='plans / schedules'; });
+  Object.keys(REVIEW_FIELDS).forEach(k=>{ const e=document.getElementById(REVIEW_FIELDS[k]); if(e&&!e.__tkSrc){ e.__tkSrc=1; e.addEventListener('change',()=>{ metricSource[k]='manual'; }); } });
+}
+function addAccuracySheets(wb){
+  const src=[['SOURCES & QA'],[getV('m-name')||'Project','',new Date().toISOString().slice(0,10)],[],['Metric','Value','Source']];
+  Object.keys(REVIEW_FIELDS).forEach(k=>src.push([REVIEW_LABELS[k],getV(REVIEW_FIELDS[k]),metricSource[k]||'']));
+  src.push([],['Review findings (at export)','Severity','Field','Suggested']);
+  ((typeof reviewState!=='undefined'&&reviewState.findings)||[]).forEach(f=>src.push([f.msg,f.severity,f.field?REVIEW_LABELS[f.field]:'',f.suggest==null?'':f.suggest]));
+  const bench=Object.entries(overrides).filter(([k,o])=>o&&o.pSrc==='estimationpro'); if(bench.length){ src.push([],['Benchmark prices applied','Unit $','Source']); bench.forEach(([id,o])=>{ const row=(lastRows||[]).find(r=>slug(r.div.split('·')[0])+'-'+slug(r.name)===id); src.push([row?row.name:id,o.p,o.pNote||o.pSrc]); }); }
+  if(priceList){ src.push([],['Price list',priceList.file,'loaded '+priceList.loaded],['Takeoff line','Unit $ applied','Matched price-list row','Vendor','Quote date']);
+    Object.entries(priceList.matches).filter(([k,x])=>!x.unitMismatch).forEach(([id,x])=>{ const row=(lastRows||[]).find(r=>slug(r.div.split('·')[0])+'-'+slug(r.name)===id); src.push([row?row.name:id,x.price,x.from,x.vendor||'',x.date||'']); }); }
+  const ws=XLSX.utils.aoa_to_sheet(src); ws['!cols']=[{wch:60},{wch:14},{wch:30},{wch:16},{wch:12}]; XLSX.utils.book_append_sheet(wb,ws,'Sources & QA');
+  if(lastRooms&&lastRooms.length){ const t=roomTotals(lastRooms); const ra=[['ROOM SCHEDULE (read from floor plans)'],['Net SF in units',Math.round(t.net),'Common area SF',Math.round(t.gross-t.net),'AC-eligible rooms',t.ac],[],['Sheet','× floors','Unit','Room','Kind','SF (each)','SF (× floors)','Window','Basis']];
+    lastRooms.forEach(s=>s.rooms.forEach(r=>ra.push([s.sheet,s.mult,r.unit||'',r.name,r.kind,r.sf==null?'':r.sf,r.sf==null?'':r.sf*s.mult,r.window?'yes':'',r.basis])));
+    const wr=XLSX.utils.aoa_to_sheet(ra); wr['!cols']=[{wch:14},{wch:8},{wch:8},{wch:24},{wch:10},{wch:10},{wch:12},{wch:8},{wch:16}]; XLSX.utils.book_append_sheet(wb,wr,'Room Schedule'); }
+  if(versionCompare){ const vc=versionCompare; const va=[['VARIANCE vs '+vc.label],['Total before',vc.grand0,'Total now',vc.grand1,'Difference',vc.grand1-vc.grand0],[],['Change','Division','Item','Qty before','Qty now','Unit','$ before','$ now','Δ $']];
+    vc.lines.forEach(l=>va.push([l.k,l.div,l.name,+(+l.q0).toFixed(1),+(+l.q1).toFixed(1),l.unit,l.e0,l.e1,l.e1-l.e0]));
+    if(vc.metricsChanged.length){ va.push([],['Metric changes','Before','Now']); vc.metricsChanged.forEach(m=>va.push([m.label,m.v0,m.v1])); }
+    const wv=XLSX.utils.aoa_to_sheet(va); wv['!cols']=[{wch:10},{wch:30},{wch:44},{wch:10},{wch:10},{wch:6},{wch:12},{wch:12},{wch:12}]; XLSX.utils.book_append_sheet(wb,wv,'Variance'); }
+}
+
+/* ---------- wiring ---------- */
+(function(){
+  const _recalc=recalc;
+  recalc=function(){ try{ if(priceList&&!priceList.matches) matchPriceList(); applyPriceList(); }catch(e){ console.warn(e); } _recalc(); try{ markPriceRows(); renderPriceListPanel(); renderVersionPanel(); }catch(e){ console.warn(e); } };
+  const _setOv=setOv;
+  setOv=function(id,field,val){ if(field==='p'){ const o=overrides[id]||(overrides[id]={}); o.pManual=val!==''; if(val==='') delete o.pSrc; } return _setOv(id,field,val); };
+  const _run=runEstimateReview;
+  runEstimateReview=async function(merged,assumed,missing,source){ if(assumed||source) setMetricSources(assumed,source||reviewState.source); return _run(merged,assumed,missing,source); };
+  const _lc=localChecks;
+  localChecks=function(v){ const f=_lc(v); if(lastRooms&&lastRooms.length){ const t=roomTotals(lastRooms);
+    if(t.net>0&&v.nsf>0){ const d=(t.net-v.nsf)/v.nsf; if(Math.abs(d)>0.10) f.push({field:'nsf',severity:Math.abs(d)>0.25?'high':'medium',msg:`Room schedule read from the plans totals ${tkFmt(t.net)} SF inside units, ${(d*100).toFixed(0)}% ${d>0?'more':'less'} than the entered Net SF.`,suggest:Math.round(t.net),src:'check'}); }
+    if(t.ac>0&&v.hvacIndoor>0&&Math.abs(t.ac-v.hvacIndoor)/v.hvacIndoor>0.2) f.push({field:'hvacIndoor',severity:'medium',msg:`Room schedule shows ${t.ac} AC-eligible rooms vs ${v.hvacIndoor} indoor units entered.`,suggest:t.ac,src:'check'}); }
+    return f; };
+  try{ const pl=JSON.parse(localStorage.getItem(TK_LS_PL)||'null'); if(pl&&pl.rows){ priceList=pl; priceList.matches=null; } }catch(e){}
+  const _clear=clearMetrics; clearMetrics=function(){ _clear(); lastRooms=null; metricSource={}; versionCompare=null; const r=document.getElementById('tk-rooms'); if(r) r.remove(); };
+})();
+
+/* ============ MATERIAL PRICE BENCHMARK (EstimationPro Cost API) ============ */
+// Talks to netlify/functions/prices.js. Regional typical unit prices for a trade,
+// adjusted to a ZIP, matched to takeoff lines so out-of-line built-in prices stand
+// out; adopt a benchmark per line with one click. (PPI escalation already lives in
+// ppi.js / ppiFactor — this is a second, independent reference.)
+const PRICES_URL='/.netlify/functions/prices';
+let epTrades=null, epData=null, epZip='11249';
+async function pricesGet(params){
+  const r=await fetch(PRICES_URL+'?'+new URLSearchParams(params).toString());
+  let d=null; try{ d=await r.json(); }catch(e){}
+  if(!r.ok||!d) throw new Error((d&&d.error)||(r.status===404?'prices function not deployed — copy netlify/functions/prices.js next to analyze.js and redeploy':'server error '+r.status));
+  return d;
+}
+async function loadEPTrades(){ try{ const d=await pricesGet({source:'ep-trades'}); epTrades=(d.data&&(d.data.trades||d.data))||d.trades||[]; }catch(e){ epTrades=[]; const st=document.getElementById('lp-status'); if(st) st.textContent='EstimationPro unavailable: '+e.message; } renderLivePricing(); }
+async function loadEP(trade){
+  if(!trade) return; const st=document.getElementById('lp-status'); if(st) st.textContent='Fetching '+trade+' benchmarks for ZIP '+epZip+'…';
+  try{ const d=await pricesGet({source:'ep',trade,zip:epZip}); epData=d.data||d; epData._trade=trade; track('ep_loaded',{trade,items:(epData.items||[]).length}); }
+  catch(e){ epData=null; if(st) st.textContent='EstimationPro unavailable: '+e.message; return; }
+  renderLivePricing();
+}
+function epMatches(){
+  if(!epData||!Array.isArray(epData.items)) return [];
+  const m=metrics(); const divs=buildTakeoff(m); const lines=[];
+  divs.forEach(d=>d.items.forEach(it=>lines.push({id:slug(d.div.split('·')[0])+'-'+slug(it.n),n:it.n,u:String(it.u||'').toUpperCase(),p:it.p})));
+  const unitMap={'sq ft':'SF','sqft':'SF','sf':'SF','square foot':'SF','linear ft':'LF','lf':'LF','linear foot':'LF','each':'EA','ea':'EA','unit':'EA','cu yd':'CY','cubic yard':'CY','cy':'CY','sq':'SQ','ton':'TON','hour':'HR'};
+  return epData.items.map(x=>{ const label=x.name||x.label||x.id||''; let best=null,bs=0; lines.forEach(l=>{ const s=plScore(label.replace(/-/g,' '),l.n); if(s>bs){ bs=s; best=l; } });
+    const eu=unitMap[String(x.unit||'').toLowerCase()]||String(x.unit||'').toUpperCase(); const cur=best?((overrides[best.id]&&overrides[best.id].p!=null)?overrides[best.id].p:best.p):null;
+    return {item:x,label,unit:eu,line:bs>=0.4?best:null,score:bs,cur,unitOk:best?eu===best.u:false,diff:(best&&cur&&x.typical)?(cur/x.typical-1)*100:null}; })
+    .sort((a,b)=>(b.line?1:0)-(a.line?1:0)||Math.abs(b.diff||0)-Math.abs(a.diff||0));
+}
+function useEP(id,price,label){ const o=overrides[id]||(overrides[id]={}); o.p=price; o.pSrc='estimationpro'; o.pNote='EstimationPro typical, ZIP '+epZip+': '+label; o.pManual=false; track('ep_price_used',{id}); recalc(); }
+function renderLivePricing(){
+  const tb=document.getElementById('takeoff-body'); const tbl=tb&&tb.closest('table'); if(!tbl) return;
+  const el=tkPanel('tk-live',tbl,true);
+  let h='<h4>Price benchmark <span class="tk-sub">EstimationPro regional unit prices, matched to your takeoff lines</span></h4>';
+  h+=`<div class="tk-row"><strong>Benchmark</strong><span>ZIP</span><input type="text" value="${esc2(epZip)}" maxlength="5" style="width:64px" onchange="epZip=this.value.replace(/\\D/g,'').slice(0,5)||'11249'">`;
+  if(!epTrades) h+='<button onclick="loadEPTrades()">Load trades</button>';
+  else if(!epTrades.length) h+='<span class="tk-sub">no trades returned</span>';
+  else h+=`<select onchange="loadEP(this.value)"><option value="">Pick a trade…</option>${epTrades.map(t=>{ const id=t.id||t.slug||t.trade||t; const nm=t.name||t.label||id; return `<option value="${esc2(id)}"${epData&&epData._trade===id?' selected':''}>${esc2(nm)}${t.itemCount||t.count?' ('+(t.itemCount||t.count)+')':''}</option>`; }).join('')}</select>`;
+  h+='</div>';
+  if(epData){ const rows=epMatches(); const mult=epData.multiplier; h+=`<div class="tk-sub">${esc2(epData.location||('ZIP '+epZip))}${mult?' · regional multiplier '+mult:''} · typical installed prices, low–high range in brackets. Source: EstimationPro.ai Construction Cost API (free, attribution required).</div>`;
+    h+='<div class="tk-rooms-wrap"><table><tr><th>Benchmark item</th><th>Unit</th><th class="num">Typical</th><th>Matched takeoff line</th><th class="num">Ours</th><th class="num">Ours vs bench</th><th></th></tr>';
+    rows.slice(0,60).forEach(r=>{ const x=r.item; const typ=x.typical!=null?+x.typical:null;
+      h+=`<tr><td>${esc2(r.label)}${x.regionallyAdjusted===false?' <span class="tk-badge warn" title="national price, not adjusted to ZIP">national</span>':''}</td><td>${esc2(r.unit)}</td><td class="num">${typ==null?'—':'$'+typ.toLocaleString()}${x.low!=null&&x.high!=null?` <span class="tk-sub">[${(+x.low).toLocaleString()}–${(+x.high).toLocaleString()}]</span>`:''}</td>`+
+        `<td>${r.line?esc2(r.line.n)+(r.unitOk?'':' <span class="tk-badge warn">unit '+esc2(r.line.u)+'</span>'):'<span class="tk-sub">no close line</span>'}</td><td class="num">${r.cur!=null?'$'+(+r.cur).toLocaleString():''}</td>`+
+        `<td class="num">${r.diff==null?'':`<span class="tk-badge ${Math.abs(r.diff)>25?'warn':'src'}">${r.diff>=0?'+':''}${r.diff.toFixed(0)}%</span>`}</td><td>${r.line&&r.unitOk&&typ!=null?`<button onclick="useEP('${r.line.id}',${typ},'${esc2(r.label).replace(/'/g,'')}')">Use</button>`:''}</td></tr>`; });
+    h+='</table></div>'; }
+  h+='<div class="tk-status" id="lp-status"></div>';
+  el.innerHTML=h;
+}
+(function(){ const _r=recalc; recalc=function(){ _r(); try{ renderLivePricing(); markSourceBadges(); }catch(e){ console.warn(e); } }; })();
+function markSourceBadges(){
+  const tb=document.getElementById('takeoff-body'); if(!tb) return;
+  [...tb.querySelectorAll('tr')].forEach(tr=>{ const inp=tr.querySelector('input[type=number]'); if(!inp) return; const m=(inp.getAttribute('oninput')||'').match(/setOv\('([^']+)'/); if(!m) return;
+    const o=overrides[m[1]]; if(!o||!o.pSrc||o.pSrc==='pricelist') return; const td=tr.children[0]; if(td&&!td.querySelector('.tk-src-badge')){ const b=document.createElement('span'); b.className='tk-pl-badge tk-src-badge'; b.style.color='#534AB7'; b.style.background='#eeedfe'; b.style.borderColor='#c7c3f2'; b.title=o.pNote||o.pSrc; b.textContent='benchmark'; td.appendChild(b); } });
+}
