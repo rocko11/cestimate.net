@@ -7,6 +7,8 @@
   const KEY='rest_pricebook_v1';
   // budget wording -> estimate line(s) and the driver its cost scales with
   const MAP=[
+    {re:/water ?proof/i, lines:['Below-grade waterproofing'], drv:'fp'},
+    {re:/plumb.*sprink|sprink.*plumb/i, lines:['Plumbing systems (units, risers, common, DHW)','Fire sprinkler (NFPA 13R)'], split:[0.7,0.3], drv:'gfa'},
     {re:/window/i, lines:['Windows & glass doors (new)'], drv:'windows'},
     {re:/\bdoors?\b/i, lines:['Apartment / entry doors (metal)','Stair / fire-rated doors (metal)','Interior doors (solid wood)'], drv:'doors'},
     {re:/elevator/i, lines:['Passenger elevator'], drv:'elev'},
@@ -29,7 +31,6 @@
     {re:/roof/i, lines:['Roofing membrane'], drv:'fp'},
     {re:/shoring|excavat|soe\b/i, lines:['Excavation & soil export'], drv:'fp'},
     {re:/foundation/i, lines:['Foundation (footings, mat, walls)'], drv:'fp'},
-    {re:/water ?proof/i, lines:['Below-grade waterproofing'], drv:'fp'},
     {re:/structure|concrete|superstruct/i, lines:['Concrete superstructure — frame, slabs & roof deck'], drv:'gfa', add:true},
     {re:/water and sewer|water & sewer|utilit/i, lines:['Utility connections'], drv:'lump'},
     {re:/stucco/i, lines:['Stucco'], drv:'lump'},
@@ -79,7 +80,7 @@
       bg.rows.forEach(r=>{
         if(r.map<0||r.skip) return; const m=MAP[r.map]; const d=m.drv;
         const den=d==='lump'?1:(+bg.facts[d]||0); if(!(den>0)) return;
-        m.lines.forEach(L=>{ const k=L+'|'+d; per[k]=(m.add&&per[k]?per[k]:0)+r.amount/den; });
+        m.lines.forEach((L,li)=>{ const k=L+'|'+d; const share=m.split?m.split[li]:1; per[k]=(m.add&&per[k]?per[k]:0)+r.amount*share/den; });
       });
       Object.entries(per).forEach(([k,v])=>{ (acc[k]=acc[k]||[]).push({v,src:bg.name}); });
     });
@@ -147,7 +148,7 @@
   }
   function reviewRows(name,rows){
     const cur=(typeof metrics==='function')?metrics():{};
-    const opts='<option value="-1">— ignore —</option>'+MAP.map((m,i)=>'<option value="'+i+'">'+esc(m.lines[0]==='__HVAC__'?'HVAC (all lines)':m.lines.join(' + '))+' ('+DRV_LABEL[m.drv]+')</option>').join('');
+    const opts='<option value="-1">— ignore —</option>'+MAP.map((m,i)=>'<option value="'+i+'">'+esc(m.lines[0]==='__HVAC__'?'HVAC (all lines)':(m.split?m.lines.map((l,i)=>l.split(' (')[0]+' '+Math.round(m.split[i]*100)+'%').join(' + '):m.lines.join(' + ')))+' ('+DRV_LABEL[m.drv]+')</option>').join('');
     const f=(id,lab,v)=>'<label style="margin-right:10px">'+lab+' <input type="number" id="pb-'+id+'" value="'+(v||'')+'"></label>';
     let h='<p><b>'+esc(name)+'</b> — '+rows.length+' lines found. Enter the size of <u>that</u> project (prefilled with the current one — change it if the budget is for a different building), check the matches, then save.</p>'+
       '<div><label style="margin-right:10px">Budget name <input id="pb-name" value="'+esc(name)+'"></label></div><div style="margin:6px 0">'+
