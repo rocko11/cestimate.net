@@ -2217,7 +2217,10 @@ async function generateAIImage(){
     sampled=[];
     for(let i=0;i<SAMPLE_N;i++) sampled.push(allImgs[Math.round(i*(allImgs.length-1)/(SAMPLE_N-1))]);
   }
-  const planPages=sampled.map(p=>({type:'image',source:{type:'base64',media_type:'image/jpeg',data:p.b}}));
+  // The proxy takes {media_type,data} parts (not Anthropic content blocks), and the whole request must stay
+  // under the function's ~6 MB body limit, so pages go in as 1100 px thumbnails.
+  const planPages=[];
+  for(const p of sampled){ try{ const u=await shrinkImage('data:image/jpeg;base64,'+p.b,1100); planPages.push({media_type:'image/jpeg',data:u.split(',')[1]}); }catch(e){} }
 
   const boro={1:'Manhattan',0.92:'Brooklyn',0.90:'Queens',0.86:'Bronx',0.84:'Staten Island'}[m.boro]||'Brooklyn';
   const wt={new:'new ground-up',conversion:'adaptive reuse / conversion',gut:'gut renovation',partial:'partial renovation'}[m.worktype]||'construction';
