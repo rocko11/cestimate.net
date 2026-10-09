@@ -1338,6 +1338,32 @@ function applyPriceBook(divs,m){
   if(hvTot>0&&target>0){ const f=target/hvTot; hv.forEach(it=>{ it.p=Math.round(it.p*f*100)/100; it.fixed=true; it.src='Proforma HVAC $1,125k (scaled by GFA)'; }); }
   return divs;
 }
+/* Open-data material prices: BLS Producer Price Index by material, change since the month the
+   unit prices were set (June 2025). Applied to the MATERIAL share of each line only; labor unchanged. */
+const PPI_TRADE={concrete:'WPU1333',ironworker:'WPU1074',drywall:'WPU137',insulation:'WPU1392',roofer:'WPU1361',
+  mason:'WPU1342',plumber:'WPU105',sprinkler:'WPU105',electrician:'WPU10260314',hvac:'WPU1148',carpenter:'WPU0811',
+  millwork:'WPU0811',glazier:'WPUIP2311001',elevator:'WPU1074'};
+const PPI_DEFAULT='WPUIP2300001';
+window._ppi=null;
+function ppiFactor(trade){
+  const on=(document.getElementById('ppi-on')||{}).checked; const p=window._ppi;
+  if(!on||!p||!p.series) return 1;
+  const s=p.series[PPI_TRADE[trade]||PPI_DEFAULT]||p.series[PPI_DEFAULT];
+  if(!s||!(s.change>-0.5&&s.change<1.5)) return 1;
+  return 1+s.change;
+}
+function renderPpi(){
+  const el=document.getElementById('ppi-box'); if(!el) return; const p=window._ppi;
+  if(!p||!p.series){ el.innerHTML='<span class="hint">Material price index unavailable right now; estimate uses base prices.</span>'; return; }
+  const mo=s=>s.period.replace('M','')+'/'+s.year;
+  const used=[...new Set(Object.values(PPI_TRADE).concat(PPI_DEFAULT))].filter(id=>p.series[id]);
+  el.innerHTML='<div class="hint" style="margin-bottom:4px">BLS Producer Price Index, change from '+mo(p.series[used[0]].base)+' to '+mo(p.series[used[0]].latest)+' (applied to material cost only)</div>'+
+    used.map(id=>{const s=p.series[id]; const c=s.change*100; return '<span style="display:inline-block;margin:2px 10px 2px 0"><b>'+esc(s.name)+'</b> '+(c>=0?'+':'')+c.toFixed(1)+'%</span>';}).join('');
+}
+async function loadPpi(){
+  try{ const r=await fetch('/.netlify/functions/ppi'); if(r.ok){ window._ppi=await r.json(); } }catch(e){}
+  renderPpi(); if(typeof lastTotals!=='undefined'&&document.getElementById('step-3')&&!document.getElementById('step-3').classList.contains('hidden')) recalc();
+}
 function recalc(){
   const m=metrics();
   const nw=document.getElementById('nsf-warn');
@@ -1366,12 +1392,14 @@ function recalc(){
       const qty=(o.qty!=null?o.qty:(o.qty===null?0:it.qty));
       const price=(o.p!=null?o.p:(o.p===null?0:it.p));
       const excl=!!o.excl;
-      const ext=excl?0:(it.fixed ? qty*price : qty*price*locMult);
+      let ext=excl?0:(it.fixed ? qty*price : qty*price*locMult);
       // material / labor split: labor = hours × loaded wage; material = remainder
       const hrs=excl?0:qty*(it.mh||0);
       let lab=hrs*((TRADE_RATE[it.trade]||90)*laborMult);
       if(lab>ext) lab=ext;                    // labor can't exceed the installed price
-      const mat=Math.max(ext-lab,0);
+      let mat=Math.max(ext-lab,0);
+      const pf=(it.custom||o.p!=null)?1:ppiFactor(it.trade);   // user-typed prices are taken as current
+      if(pf!==1){ mat=mat*pf; ext=lab+mat; }
       dtotal+=ext; direct+=ext; matTot+=mat; labTot+=lab; if(!excl) lineCount++;
 
       const rm = it.custom
@@ -2705,5 +2733,6 @@ function renderPlumbing(){
 }
 
 /* Wall-measuring tool (walls.js). Optional: if the file is missing the app falls back to the factor. */
+loadPpi();
 loadScript('dxf.js').catch(function(e){ console.warn('dxf.js not loaded', e); });
 loadScript('walls.js').catch(function(e){ console.warn('walls.js not loaded — wall measuring unavailable', e); });

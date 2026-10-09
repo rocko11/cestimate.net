@@ -316,6 +316,10 @@
     <div class="r"><span class="l">Direct work subtotal</span><span class="v" id="t-direct">—</span></div>
     <div class="r"><span class="l">General conditions (<span id="gc-l">8</span>%)</span><span class="v" id="t-gc">—</span></div>
     <div class="r"><span class="l">GC overhead &amp; profit (<span id="op-l">12</span>%)</span><span class="v" id="t-op">—</span></div>
+    <div class="cont-row" style="flex-wrap:wrap">
+      <label class="l"><input type="checkbox" id="ppi-on" checked onchange="recalc()"> Adjust materials to latest open-data prices (BLS PPI)</label>
+      <div id="ppi-box" style="width:100%;font-size:12px;margin-top:4px">Loading material price index…</div>
+    </div>
     <div class="cont-row">
       <span class="l">Pricing</span>
       <select id="price-book" onchange="setPriceBook(this.value)" style="margin-left:8px">
@@ -437,7 +441,7 @@ window.addEventListener('error',function(e){
   if(el){ el.textContent='Script error: '+(e.message||'unknown')+'  — please report this.'; el.classList.remove('hidden'); }
 });
 </script>
-<script src="app.js?v=20261009-c"></script>
+<script src="app.js?v=20261009-d"></script>
 
 <!-- 3D RENDERING MODAL -->
 <div id="rendering-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,20,38,.93);overflow:auto;">
