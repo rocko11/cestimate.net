@@ -920,6 +920,7 @@ function tagProvenance(p){
   // counts the app derived from a rule even though a number came back (e.g. entry doors = units)
   if(planInfo&&planInfo.doors==='none'){ ['m-doors-stair','m-doors-int'].forEach(id=>{ if(window._prov[id]==='plans') setProv(id,'rule','not counted on the plans'); }); }
 }
+function fieldLabel(id){ const e=document.getElementById(id); const f=e&&e.closest('.field'); const l=f&&f.querySelector('label'); if(!l) return id.replace('m-',''); const c=l.cloneNode(true); c.querySelectorAll('.hint').forEach(h=>h.remove()); return c.textContent.trim(); }
 function provIssues(){
   const miss=PROV_REQUIRED.filter(id=>!(+getV(id)>0));
   const rule=Object.keys(window._prov).filter(id=>window._prov[id]==='rule');
@@ -2053,7 +2054,7 @@ function updateFloorTotals(){
 function goToResults(){
   const iss=provIssues(); const box=document.getElementById('prov-block');
   if(iss.miss.length){
-    const names=iss.miss.map(id=>{ const l=document.querySelector('label[for="'+id+'"]'); return l?l.textContent.trim():id.replace('m-',''); });
+    const names=iss.miss.map(fieldLabel);
     if(box){ box.innerHTML='<strong>Can\u2019t price yet \u2014 these were not found on the plans:</strong> '+names.join(', ')+'. Enter them (they are marked <span style="color:#b00020;font-weight:600">missing</span>) and run again.'; box.classList.remove('hidden'); box.scrollIntoView({block:'center'}); }
     iss.miss.forEach(id=>{ const e=document.getElementById(id); if(e) e.style.outline='2px solid #b00020'; });
     return;
@@ -2064,7 +2065,7 @@ function goToResults(){
 function renderAssumptions(){
   const el=document.getElementById('assumptions'); if(!el) return;
   const m=metrics(); const L=[];
-  provIssues().rule.forEach(id=>{ const l=document.querySelector('label[for="'+id+'"]'); L.push((l?l.textContent.trim():id)+' = '+getV(id)+' ('+(window._provNote[id]||'rule of thumb')+')'); });
+  provIssues().rule.forEach(id=>{ L.push(fieldLabel(id)+' = '+getV(id)+' ('+(window._provNote[id]||'rule of thumb')+')'); });
   if(!m.excDepthSet&&m.cellar) L.push('Excavation depth '+m.excDepth+' ft (default for a cellar)');
   if(!m.soeSet&&m.soeLF>0) L.push('Shoring '+Math.round(m.soeLF)+' LF (= building perimeter)');
   if(!(+getV('m-perim')>0)) L.push('Perimeter '+Math.round(Math.sqrt(m.footprint)*4)+' LF (4\u00d7\u221afootprint)');
