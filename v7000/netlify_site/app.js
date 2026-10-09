@@ -1406,7 +1406,8 @@ function renderPpi(){
   const el=document.getElementById('ppi-box'); if(!el) return; const p=window._ppi;
   if(!p||!p.series){ el.innerHTML='<span class="hint">Material price index unavailable right now; estimate uses base prices.</span>'; return; }
   const mo=s=>s.period.replace('M','')+'/'+s.year;
-  const used=[...new Set(Object.values(PPI_TRADE).concat(PPI_DEFAULT))].filter(id=>p.series[id]);
+  const used=[...new Set(Object.values(PPI_TRADE).concat(PPI_DEFAULT))].filter(id=>p.series[id]&&p.series[id].base&&p.series[id].latest);
+  if(!used.length){ el.innerHTML='<span class="hint">Material price index returned no usable series; estimate uses base prices.</span>'; return; }
   el.innerHTML='<div class="hint" style="margin-bottom:4px">BLS Producer Price Index, change from '+mo(p.series[used[0]].base)+' to '+mo(p.series[used[0]].latest)+' (applied to material cost only)</div>'+
     used.map(id=>{const s=p.series[id]; const c=s.change*100; return '<span style="display:inline-block;margin:2px 10px 2px 0"><b>'+esc(s.name)+'</b> '+(c>=0?'+':'')+c.toFixed(1)+'%</span>';}).join('');
 }
