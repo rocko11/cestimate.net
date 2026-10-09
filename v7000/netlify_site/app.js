@@ -2196,6 +2196,8 @@ async function generateAIImage(){
   const btn=document.getElementById('regen-btn');
   const container=document.getElementById('ai-render-container');
   const oldSvg=document.getElementById('ai-render-svg'); if(oldSvg)oldSvg.remove();
+  { const op=document.getElementById('ai-render-photo'); if(op) op.remove(); }   // clear the old image right away so the click visibly does something
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.textContent='Rendering… ~45s'; }
   loading.style.display='flex'; loading.style.flexDirection='column';
   loading.style.alignItems='center'; loading.style.justifyContent='center';
   err.style.display='none'; btn.disabled=true;
@@ -2272,7 +2274,7 @@ async function generateAIImage(){
         img.style.cssText='width:100%;height:100%;object-fit:contain;background:#eef1f5;display:block;';
         loading.style.display='none'; container.appendChild(img); photoOk=true;
         cap.textContent='Photo rendering made from your front elevation sheet. '+(renderDesc?renderDesc.slice(0,200):'');
-        btn.disabled=false; track('render_elevation');
+        btn.disabled=false; if(btn.dataset.label) btn.textContent=btn.dataset.label; track('render_elevation');
         return;
       }
     }catch(e){ console.warn('elevation rendering failed, falling back',e); }
@@ -2305,7 +2307,7 @@ async function generateAIImage(){
   } else {
     cap.textContent='AI architectural visualization — '+m.floors+' floors, '+boro;
   }
-  btn.disabled=false;
+  btn.disabled=false; if(btn.dataset.label) btn.textContent=btn.dataset.label;
 }
 
 // Strip lettering from a line drawing: dark connected blobs smaller than a window (text, dimension numbers,
