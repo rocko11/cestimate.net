@@ -2208,7 +2208,7 @@ async function generateAIImage(){
   const allImgs=[];
   for(const entry of files){
     if(entry.status==='done' && entry.images && entry.images.length){
-      entry.images.forEach(img=>allImgs.push(img));
+      entry.images.forEach((img,pi)=>{ const b=(typeof img==='string')?img:(img&&img.img); if(b) allImgs.push({b,entry,pi}); });   // page images are {img,text} objects
     }
   }
   const SAMPLE_N=10;
@@ -2217,19 +2217,19 @@ async function generateAIImage(){
     sampled=[];
     for(let i=0;i<SAMPLE_N;i++) sampled.push(allImgs[Math.round(i*(allImgs.length-1)/(SAMPLE_N-1))]);
   }
-  const planPages=sampled.map(img=>({type:'image',source:{type:'base64',media_type:'image/jpeg',data:img}}));
+  const planPages=sampled.map(p=>({type:'image',source:{type:'base64',media_type:'image/jpeg',data:p.b}}));
 
   const boro={1:'Manhattan',0.92:'Brooklyn',0.90:'Queens',0.86:'Bronx',0.84:'Staten Island'}[m.boro]||'Brooklyn';
   const wt={new:'new ground-up',conversion:'adaptive reuse / conversion',gut:'gut renovation',partial:'partial renovation'}[m.worktype]||'construction';
 
-  let renderDesc=''; let elevationImg=null;
+  let renderDesc=''; let elevationImg=null; let elevationSrc=null, elevationBox=null;
   if(planPages.length>0){
     // Ask Claude to both FIND the actual elevation sheet among the sampled
     // pages (by 1-based position) and describe it — so we can use that exact
     // page as a real image reference for generation, not just a text summary.
     const prompt='These are '+planPages.length+' sample pages (numbered 1 to '+planPages.length+' in the order given) from architectural plans for a '+m.floors+'-story, '+(m.units||0)+'-unit '+wt+' multifamily building in '+boro+', NYC ('+Math.round(m.gfa||0).toLocaleString()+' SF GFA). '+
       'Find the page that shows an exterior building ELEVATION — a front/street-facing view of the full facade (not a floor plan, not a section, not a site plan), usually labeled "ELEVATION". '+
-      'Respond with ONLY compact JSON, no markdown: {"elevationPageNumber": <1-based number of that page, or null if none of these sampled pages show one>, "description": "3-4 sentences describing the facade exactly as drawn — material, window size/pattern, cornice/parapet, entrance, whether balconies are shown and where, setbacks. Base this only on what is visible, and explicitly say \'no balconies shown\' if none appear."}';
+      'Respond with ONLY compact JSON, no markdown: {"elevationPageNumber": <1-based number of that page, or null if none of these sampled pages show one>, "elevationBox": [x0,y0,x1,y1] — the box around the single main FRONT/street elevation drawing on that page as fractions 0-1 of the page width/height (exclude the title block, notes, legends and other drawings), "description": "3-4 sentences describing the facade exactly as drawn — material, window size/pattern, cornice/parapet, entrance, whether balconies are shown and where, setbacks. Base this only on what is visible, and explicitly say \'no balconies shown\' if none appear."}';
     try{
       const resp=await postProxy({parts:planPages,prompt});
       if(resp.ok){
@@ -2238,7 +2238,8 @@ async function generateAIImage(){
         const parsed=JSON.parse(raw);
         renderDesc=parsed.description||'';
         if(parsed.elevationPageNumber && sampled[parsed.elevationPageNumber-1]){
-          elevationImg=sampled[parsed.elevationPageNumber-1];
+          elevationImg=sampled[parsed.elevationPageNumber-1].b;
+          elevationSrc=sampled[parsed.elevationPageNumber-1]; elevationBox=Array.isArray(parsed.elevationBox)?parsed.elevationBox.map(Number):null;
         }
       }
     }catch(e){ /* fall back to text-only, no reference image */ }
@@ -2258,6 +2259,21 @@ async function generateAIImage(){
     : `Photorealistic architectural exterior rendering, eye-level street view, daytime, clear sky. A ${m.floors}-story ${wt} building in ${boro}, New York City, approximately ${m.units||0} units, ${Math.round(m.gfa||0).toLocaleString()} SF gross floor area. NYC streetscape context with sidewalk, street trees, and adjacent buildings. Clean modern architectural visualization style, sharp detail, natural lighting, no people, no text or watermarks.`;
 
   let photoOk=false;
+  // 1st choice: FLUX Canny — the elevation drawing's own lines drive the image, so the building is the one drawn.
+  if(elevationSrc){
+    try{
+      cap.textContent='Tracing the elevation sheet and rendering it photorealistically…';
+      const url=await renderFromElevation(elevationSrc,elevationBox,m,boro,wt,renderDesc,cap);
+      if(url){
+        const img=document.createElement('img'); img.id='ai-render-photo'; img.src=url; img.crossOrigin='anonymous';
+        img.style.cssText='width:100%;height:100%;object-fit:contain;background:#eef1f5;display:block;';
+        loading.style.display='none'; container.appendChild(img); photoOk=true;
+        cap.textContent='Rendered from the actual elevation drawing (geometry follows the sheet). '+(renderDesc?renderDesc.slice(0,200):'');
+        btn.disabled=false; track('render_elevation');
+        return;
+      }
+    }catch(e){ console.warn('elevation rendering failed, falling back',e); }
+  }
   try{
     const r=await fetch('/.netlify/functions/render-facade',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:facadePrompt, referenceImage: elevationImg?('data:image/jpeg;base64,'+elevationImg):null})});
     const d=await r.json().catch(()=>({}));
@@ -2289,6 +2305,34 @@ async function generateAIImage(){
   btn.disabled=false;
 }
 
+async function renderFromElevation(src,box,m,boro,wt,desc,cap){
+  const page=await renderPageCanvas(src.entry,src.pi,2400);
+  let [x0,y0,x1,y1]=(box&&box.length===4&&box.every(v=>v>=0&&v<=1)&&box[2]>box[0]&&box[3]>box[1])?box:[0.03,0.03,0.80,0.92];
+  const pad=0.015; x0=Math.max(0,x0-pad); y0=Math.max(0,y0-pad); x1=Math.min(1,x1+pad); y1=Math.min(1,y1+pad);
+  const sx=Math.round(x0*page.width), sy=Math.round(y0*page.height), sw=Math.round((x1-x0)*page.width), sh=Math.round((y1-y0)*page.height);
+  if(sw<200||sh<200) return null;
+  const sc=Math.min(1,1440/Math.max(sw,sh));
+  const c=document.createElement('canvas'); c.width=Math.round(sw*sc); c.height=Math.round(sh*sc);
+  const g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,c.width,c.height); g.drawImage(page,sx,sy,sw,sh,0,0,c.width,c.height);
+  const image=c.toDataURL('image/jpeg',0.9);
+  const prompt='Photorealistic architectural photograph of the building shown in this elevation drawing, exactly following its outline, floor lines, window and door openings, balconies, setbacks and roofline. '+
+    'A new '+m.floors+'-story '+wt+' building in '+boro+', New York City, seen straight-on at eye level from across the street. '+(desc?('Facade as drawn: '+desc+' '):'')+
+    'Real materials with texture (brick, stucco, metal panel, glass as appropriate), reflective glass windows with interior depth, storefront at street level if drawn, sidewalk, street trees, neighboring Brooklyn row buildings at the sides, soft daylight, high detail, professional real-estate rendering. '+
+    'No text, no dimension lines, no annotations, no grid lines, no people in the foreground.';
+  const r=await fetch('/.netlify/functions/render-elevation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image,prompt})});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok||!d.id) throw new Error(d.error||('render-elevation '+r.status));
+  for(let i=0;i<40;i++){
+    await new Promise(res=>setTimeout(res,3000));
+    if(cap) cap.textContent='Rendering from the elevation drawing… '+(i*3+3)+'s';
+    const p=await (await fetch('/.netlify/functions/render-elevation?id='+encodeURIComponent(d.id))).json().catch(()=>({}));
+    if(p.status==='succeeded'&&p.image){
+      try{ const b=await (await fetch(p.image)).blob(); return await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=()=>res(p.image); fr.readAsDataURL(b); }); }catch(e){ return p.image; }
+    }
+    if(p.status==='failed'||p.status==='canceled') throw new Error(p.error||p.status);
+  }
+  throw new Error('rendering timed out');
+}
 function parseRenderFeatures(desc,m){
   // Extract visual cues from AI description to adjust the SVG
   const d=desc.toLowerCase();
