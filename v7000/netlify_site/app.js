@@ -331,7 +331,16 @@ function pickBestTable(reads){
   });
   if(!scored.length) return null;
   scored.sort((a,b)=>a.err-b.err||b.n-a.n);
-  return scored[0].rows.map(x=>({name:x.name,gross:x.gross,net:x.net}));
+  const rows=cleanFloorRows(scored[0].rows.map(x=>({name:x.name,gross:x.gross,net:x.net})));
+  rows._err=scored[0].err; return rows;
+}
+// Keep only level rows: drop totals/summary lines ("RESIDENTIAL ...", "AFFORDABLE FLOOR AREA") and any row far bigger than a floor.
+function cleanFloorRows(rows){
+  const lvl=/\d|CELL|BASE|BULK|ROOF|PENT|MEZZ|GROUND|LOBBY/i;
+  let r=rows.filter(x=>x&&lvl.test(String(x.name||''))&&!/TOTAL|COMBINED|\bFAR\b/i.test(String(x.name||'')));
+  const g=r.map(x=>x.gross).filter(v=>v>0).sort((a,b)=>a-b); const med=g.length?g[Math.floor(g.length/2)]:0;
+  if(med>0) r=r.filter(x=>!(x.gross>med*3));
+  return r;
 }
 async function refineFloorAreas(merged){
   const cand=[];
@@ -363,7 +372,8 @@ async function refineFloorAreas(merged){
     }
     return null;
   });
-  const good=outs.filter(o=>o&&o.length>=2).sort((a,b)=>b.length-a.length);
+  // several sheets carry area tables (zoning, affordable-housing, unit breakdown): keep the one whose rows add up to its own printed total
+  const good=outs.filter(o=>o&&o.length>=2).sort((a,b)=>((a._err!=null?a._err:0.5)-(b._err!=null?b._err:0.5))||(b.length-a.length));
   if(good.length) best=good[0];            // the focused table pass beats the page-by-page guess (which picked up apartment rows)
   return best.length?best:null;
 }
@@ -2215,7 +2225,10 @@ async function generateAIImage(){
   }
   const SAMPLE_N=16;
   let sampled=allImgs;
-  if(allImgs.length>SAMPLE_N){
+  const pgText=p=>{ const im=p.entry.images[p.pi]; return String((im&&im.text)||'').toUpperCase(); };
+  const front=allImgs.filter(p=>/FRONT ELEVATION|STREET ELEVATION|NORTH ELEVATION \(FRONT\)/.test(pgText(p)));
+  if(front.length){ sampled=front.slice(0,2); }      // the sheet title says it — no guessing between front and side elevations
+  else if(allImgs.length>SAMPLE_N){
     sampled=[];
     for(let i=0;i<SAMPLE_N;i++) sampled.push(allImgs[Math.round(i*(allImgs.length-1)/(SAMPLE_N-1))]);
   }
