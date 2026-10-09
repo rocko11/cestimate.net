@@ -346,11 +346,11 @@ async function refineFloorAreas(merged){
   const outs=await pool(cand.slice(0,3),1,async({entry,i})=>{
     for(let a=0;a<2;a++){
       try{
-        // The model sees at most ~1500 px per image, so a whole sheet is unreadable to the digit. Read it in 3x2 tiles (10% overlap) and keep the tile holding the table.
-        const c=await renderPageCanvas(entry,i,6600);
-        const W=c.width,H=c.height,tw=Math.round(W/3*1.1),th=Math.round(H/2*1.1);
-        const tiles=[]; for(let r=0;r<2;r++)for(let q=0;q<3;q++){
-          const x=Math.max(0,Math.min(W-tw,Math.round(q*W/3-W*0.033))),y=Math.max(0,Math.min(H-th,Math.round(r*H/2-H*0.05)));
+        // The model sees at most ~1500 px per image, so a whole sheet is unreadable to the digit. Read it in 4x3 overlapping tiles and keep the tile holding the table.
+        const c=await renderPageCanvas(entry,i,8000);
+        const W=c.width,H=c.height,tw=Math.round(W*0.36),th=Math.round(H*0.40);
+        const tiles=[]; for(let r=0;r<3;r++)for(let q=0;q<4;q++){
+          const x=Math.round(Math.min(W-tw,q*W*0.213)),y=Math.round(Math.min(H-th,r*H*0.30));
           const t=document.createElement('canvas'); t.width=tw; t.height=th; t.getContext('2d').drawImage(c,x,y,tw,th,0,0,tw,th);
           tiles.push(t.toDataURL('image/jpeg',0.92).split(',')[1]); }
         const first=await Promise.all(tiles.map(b=>callExtractor([{media_type:'image/jpeg',data:b}],'',FLOOR_TABLE_PROMPT).then(parseJSON).catch(()=>null)));
