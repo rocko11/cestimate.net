@@ -1051,7 +1051,7 @@ const SCHED_SF=49000;
 function schedItem(n,total,trade,laborShare,extra){
   const p=Math.round(total/SCHED_SF*100)/100;
   return Object.assign({n, basis:'GFA SF · $'+p.toFixed(2)+'/SF (from your schedule: $'+Math.round(total/1000)+'k ÷ '+SCHED_SF.toLocaleString('en-US')+' SF)',
-    qty:null, u:'SF', p, fixed:true, mh:Math.round(p*laborShare/(TRADE_RATE[trade]||60)*10000)/10000, trade, src:'Your cost schedule'},extra||{});
+    qty:null, u:'SF', p, fixed:true, mh:Math.round(p*laborShare/(TRADE_RATE[trade]||60)*10000)/10000, trade, src:'Your cost schedule', _total:total},extra||{});
 }
 function scheduleDivs(m,isNew){
   const L=(it)=>{ it.qty=m.gfa; return it; };
@@ -1275,27 +1275,73 @@ function resetEstimate(){
   customRows=[]; recalc();
 }
 
-/* Owner price book: unit rates taken from P National's 915 Dean proforma (hard-cost budget, Jul 2026),
-   applied flat (no borough/construction-type factor). Quantities still come from the plans. */
+/* Owner price book = P National's 915 Dean proforma (hard costs $14,446,000, Jul 2026; GFA 79,145 SF,
+   footprint 11,023 SF, 71 units). Each proforma line becomes a rate on the driver it scales with,
+   applied flat (no borough/type factor). Quantities still come from the plans. */
+const PF={gfa:79145, fp:11023, units:71};
 const OWNER_RATES={
-  'Windows & glass doors (new)':{p:4480,src:'P National proforma: $650k ÷ 145 windows'},
-  'Apartment / entry doors (metal)':{p:1800,src:'P National proforma (doors $295k)'},
-  'Stair / fire-rated doors (metal)':{p:1800,src:'P National proforma (doors $295k)'},
-  'Interior doors (solid wood)':{p:1100,src:'P National proforma (doors $295k)'},
-  'Passenger elevator':{p:450000,src:'P National proforma: $900k for 2 elevators'},
-  'Exterior facade (new skin, excl. windows)':{p:26,src:'P National proforma: façade $750k'},
-  'Air/vapor barrier & insulation':{p:3,src:'P National proforma: foam insulation $96k'},
-  'Kitchen casework & countertops':{p:8450,src:'P National proforma: kitchens $600k ÷ 71 units'},
+  // counted items
+  'Windows & glass doors (new)':{p:4480,src:'Proforma windows $650k ÷ 145'},
+  'Apartment / entry doors (metal)':{p:1800,src:'Proforma doors $295k'},
+  'Stair / fire-rated doors (metal)':{p:1800,src:'Proforma doors $295k'},
+  'Interior doors (solid wood)':{p:1100,src:'Proforma doors $295k'},
+  'Passenger elevator':{p:450000,src:'Proforma elevator $900k ÷ 2'},
+  'Kitchen casework & countertops':{p:Math.round(600000/PF.units),src:'Proforma kitchens $600k ÷ 71 units'},
+  'Appliance packages':{p:Math.round(350000/PF.units),src:'Proforma appliances $350k ÷ 71 units'},
+  // wall area
+  'Exterior facade (new skin, excl. windows)':{p:26,src:'Proforma façade $750k'},
+  'Air/vapor barrier & insulation':{p:3,src:'Proforma foam insulation $96k'},
+  // footprint
+  'Excavation & soil export':{drv:'fp',tot:350000,u:'SF',basis:'Footprint SF (shoring + excavation)',src:'Proforma shoring/excavation $350k'},
+  'Support of excavation (SOE) — soldier piles & lagging':{zero:'in shoring/excavation line'},
+  'Foundation (footings, mat, walls)':{drv:'fp',tot:550000,u:'SF',basis:'Footprint SF',src:'Proforma foundation $550k'},
+  'Below-grade waterproofing':{drv:'fp',tot:375000,u:'SF',basis:'Footprint SF',src:'Proforma demolition & waterproofing $375k'},
+  'Roofing membrane':{drv:'fp',tot:200000,u:'SF',basis:'Footprint SF',src:'Proforma roof $200k'},
+  'Roof insulation':{zero:'in roof line'},
+  // GFA
+  'Concrete superstructure — frame, slabs & roof deck':{drv:'gfa',tot:3000000,u:'SF',basis:'GFA SF',src:'Proforma structure $2.7M + concrete $0.3M'},
+  'Metal stud partition framing':{drv:'gfa',tot:850000,u:'SF',basis:'GFA SF',src:'Proforma framing $850k'},
+  'Gypsum board (5/8" Type X)':{drv:'gfa',tot:450000,u:'SF',basis:'GFA SF',src:'Proforma Sheetrock $450k'},
+  'Painting — walls & ceilings':{drv:'gfa',tot:350000,u:'SF',basis:'GFA SF',src:'Proforma painting $350k'},
+  'Porcelain tile — bath & kitchen':{drv:'gfa',tot:325000,u:'SF',basis:'GFA SF',src:'Proforma tiles & labor $325k'},
+  'Engineered wood flooring':{drv:'gfa',tot:325000,u:'SF',basis:'GFA SF',src:'Proforma wood flooring $325k'},
+  'Plumbing systems (units, risers, common, DHW)':{drv:'gfa',tot:650000,u:'SF',basis:'GFA SF',src:'Proforma plumbing/heating/vent/sprinkler $925k (plumbing share)'},
+  'Fire sprinkler (NFPA 13R)':{drv:'gfa',tot:275000,u:'SF',basis:'GFA SF',src:'Proforma plumbing/heating/vent/sprinkler $925k (sprinkler share)'},
+  'Electrical (service, distribution, units, fixtures, fire alarm)':{drv:'gfa',tot:940000,u:'SF',basis:'GFA SF',src:'Proforma electric $875k + fire alarm $65k'},
+  'Utility connections':{lump:75000,src:'Proforma water & sewer $75k'},
+  // not separate lines in the proforma
+  'Bathroom vanities & accessories':{zero:'not a separate proforma line (in plumbing/tiles)'},
+  'Specialty ceilings / soffits':{zero:'not a separate proforma line (in Sheetrock)'},
+  'Egress stairs (steel pan + concrete)':{zero:'not a separate proforma line (in structure)'},
+  'Misc metals — railings, guards':{zero:'not a separate proforma line (in structure)'},
+  'Caulking & sealants':{zero:'not a separate proforma line'},
 };
+const OWNER_HVAC=['Outdoor condensing units','Indoor AC units (1 per room)','Exhaust fans (kitchen + bath)','Refrigerant piping & insulation','Exhaust ductwork & goosenecks','Install, controls, balancing (TAB)'];
+const OWNER_LUMP={'Landscaping':35000};
 function priceBook(){ return (document.getElementById('price-book')||{}).value||'market'; }
 function setPriceBook(v){
-  if(v==='owner'){ setV('gc-pct',4); setV('op-pct',0); setV('cont-pct',0); }   // CM fee 4% (proforma $578k), no GC O&P, no contingency
+  if(v==='owner'){ setV('gc-pct',4); setV('op-pct',0); setV('cont-pct',0); }   // CM fee 4% (proforma $578k ÷ $14.45M), no GC O&P, no contingency
   else { setV('gc-pct',8); setV('op-pct',12); setV('cont-pct',15); }
   recalc();
 }
-function applyPriceBook(divs){
+function applyPriceBook(divs,m){
   if(priceBook()!=='owner') return divs;
-  divs.forEach(d=>d.items.forEach(it=>{ const r=it&&OWNER_RATES[it.n]; if(r){ it.p=r.p; it.fixed=true; it.src=r.src; } }));
+  const drv={gfa:m.gfa,fp:m.footprint};
+  let hv=[], hvTot=0;
+  divs.forEach(d=>d.items.forEach(it=>{
+    if(!it) return;
+    if(it._total!=null){ it.qty=1; it.u='LS'; it.p=OWNER_LUMP[it.n]!=null?OWNER_LUMP[it.n]:it._total; it.basis='Lump sum (proforma)'; it.fixed=true; it.src='Proforma $'+Math.round(it.p/1000)+'k'; return; }
+    if(OWNER_HVAC.includes(it.n)){ hv.push(it); hvTot+=(it.qty||0)*(it.p||0); return; }
+    const r=OWNER_RATES[it.n]; if(!r) return;
+    it.fixed=true;
+    if(r.zero){ it.p=0; it.src=r.zero; return; }
+    if(r.lump!=null){ it.qty=1; it.u='LS'; it.p=r.lump; it.basis='Lump sum'; it.src=r.src; return; }
+    if(r.drv){ it.qty=drv[r.drv]||0; it.u=r.u; it.p=Math.round(r.tot/PF[r.drv]*100)/100; it.basis=r.basis+' · $'+it.p+'/SF'; it.src=r.src; return; }
+    it.p=r.p; it.src=r.src;
+  }));
+  // HVAC keeps the counted units; prices scaled so the total hits the proforma rate ($1,125k ÷ 79,145 SF)
+  const target=1125000/PF.gfa*(m.gfa||0);
+  if(hvTot>0&&target>0){ const f=target/hvTot; hv.forEach(it=>{ it.p=Math.round(it.p*f*100)/100; it.fixed=true; it.src='Proforma HVAC $1,125k (scaled by GFA)'; }); }
   return divs;
 }
 function recalc(){
@@ -1304,7 +1350,7 @@ function recalc(){
   if(nw) nw.classList.toggle('hidden', m.nsf>0);
   const locMult=m.boro*m.ctype*m.occ;
   const laborMult=+getV('labor-mult')||1;
-  const divs=applyPriceBook(buildTakeoff(m));
+  const divs=applyPriceBook(buildTakeoff(m),m);
 
   // fold user-added rows into their divisions
   customRows.forEach((c,i)=>{
