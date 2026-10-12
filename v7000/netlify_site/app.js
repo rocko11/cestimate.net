@@ -2383,7 +2383,11 @@ async function elevationJob(body,cap,label){
 function renderAddress(boro){
   const f=document.getElementById('render-addr');
   let a=(f&&f.value.trim())||window._planAddress||'';
-  if(!a){ const n=getV('m-name')||''; if(/^\s*\d+[A-Z]?(-\d+)?\s+\S+/i.test(n)) a=n; }
+  if(!a){ // pull "915 DEAN STREET" out of a title like "NEW 10-STORY ... BUILDING, 915 DEAN STREET, BROOKLYN NY"
+    const n=getV('m-name')||'';
+    const mm=n.match(/\b\d+[A-Z]?(?:-\d+[A-Z]?)?\s+(?:[A-Z0-9.'-]+\s+){0,4}?(?:STREET|ST|AVENUE|AVE|BOULEVARD|BLVD|PLACE|PL|ROAD|RD|DRIVE|DR|LANE|LN|PARKWAY|PKWY|TERRACE|TER|COURT|CT|WAY|PLAZA|SQUARE|HIGHWAY|HWY)\b\.?/i);
+    if(mm) a=mm[0]; else if(/^\s*\d+[A-Z]?(-\d+)?\s+\S+/i.test(n)) a=n;
+  }
   a=a.replace(/\s+/g,' ').trim(); if(!a) return '';
   if(f&&!f.value.trim()) f.value=a;
   if(!/\b(NY|New York|Brooklyn|Manhattan|Queens|Bronx|Staten Island)\b/i.test(a)) a+=', '+boro+', NY';
