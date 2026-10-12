@@ -2427,12 +2427,13 @@ async function placeOnStreet(facadeUrl,addr,m,cap){
   const sx=bld[0]*fac.width, sy=bld[1]*fac.height, sw=(bld[2]-bld[0])*fac.width, sh=(bld[3]-bld[1])*fac.height;
   const dw=(lot[2]-lot[0])*W, dh=dw*sh/sw, dx=lot[0]*W, dyb=lot[3]*H;
   g.drawImage(fac,sx,sy,sw,sh,dx,dyb-dh,dw,dh);
-  const composite=c.toDataURL('image/jpeg',0.92);
+  const composite=c.toDataURL('image/jpeg',0.92); window._streetComposite=composite;
   // 3) One photo pass to blend perspective, light and shadows — the street and neighbors stay as photographed.
   const prompt='This is a real street photo of '+addr+' with the new '+m.floors+'-story building pasted onto the lot in the middle. Make it one seamless real photograph: '+
     'blend the new building into the scene with the same camera perspective (verticals converge like the neighbors), matching daylight, shadows and color. '+
     'Do not change the new building\'s design — same '+m.floors+' stories, windows, balconies, materials, storefront and bulkhead — and do not change anything else: '+
-    'keep the neighboring buildings, street, sidewalk, trees, cars, poles and sky exactly as they are. No text.';
+    'keep the neighboring buildings, street, sidewalk, trees, cars, poles and sky exactly as they are. Do NOT add, remove, enlarge or replace any other building: '+
+    'wherever the photo shows sky or low buildings beside the new building, it must still show that same sky and those same low buildings. Only touch the new building and its edges. No text.';
   let out=composite;
   try{ out=await elevationJob({mode:'kontext',image:composite,prompt},cap,'Blending the building into the real street…'); }catch(e){ console.warn('blend pass failed, showing the composite',e); }
   let data=out; try{ const b=await (await fetch(out)).blob(); data=await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=()=>res(out); fr.readAsDataURL(b); }); }catch(e){}
