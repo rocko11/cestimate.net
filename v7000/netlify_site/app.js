@@ -2391,7 +2391,7 @@ function renderAddress(boro){
 }
 async function placeOnStreet(facadeUrl,addr,m,cap){
   cap.textContent='Getting the Street View photo of '+addr+'…';
-  const r=await fetch('/.netlify/functions/streetview?pitch='+(m.floors>=6?22:12)+'&address='+encodeURIComponent(addr));
+  const r=await fetch('/.netlify/functions/streetview?'+(m.floors>=6?'fov=120&pitch=28':'fov=100&pitch=15')+'&address='+encodeURIComponent(addr));
   const sv=await r.json().catch(()=>({}));
   if(r.status===501) throw new Error('Google Street View key not set up yet');
   if(!r.ok||!sv.image) return null;
