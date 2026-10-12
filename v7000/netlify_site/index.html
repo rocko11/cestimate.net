@@ -445,7 +445,7 @@ window.addEventListener('error',function(e){
   if(el){ el.textContent='Script error: '+(e.message||'unknown')+'  — please report this.'; el.classList.remove('hidden'); }
 });
 </script>
-<script src="app.js?v=20261009-v"></script>
+<script src="app.js?v=20261012-a"></script>
 
 <!-- 3D RENDERING MODAL -->
 <div id="rendering-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,20,38,.93);overflow:auto;">
@@ -469,7 +469,7 @@ window.addEventListener('error',function(e){
       <div style="background:#0d1f35;border-radius:12px;border:1px solid rgba(255,255,255,.08);overflow:hidden;">
         <div style="padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between;">
           <span style="color:#7a9ab8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">AI Exterior Rendering</span>
-          <button id="regen-btn" onclick="generateAIImage()" style="background:rgba(29,111,184,.2);border:1px solid rgba(29,111,184,.35);color:#5aadee;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:inherit">↺ Regenerate</button>
+          <input id="render-addr" placeholder="Street address (e.g. 915 Dean St)" style="flex:1;margin:0 8px;min-width:0;background:#0a1520;border:1px solid rgba(255,255,255,.12);color:#cfe3f5;border-radius:6px;padding:3px 8px;font-size:11px;font-family:inherit"><button id="regen-btn" onclick="generateAIImage()" style="background:rgba(29,111,184,.2);border:1px solid rgba(29,111,184,.35);color:#5aadee;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:inherit">↺ Regenerate</button>
         </div>
         <div id="ai-render-container" style="height:340px;position:relative;background:#0a1520;display:flex;align-items:center;justify-content:center;">
           <div id="ai-render-loading" style="text-align:center;color:#3a5570;">

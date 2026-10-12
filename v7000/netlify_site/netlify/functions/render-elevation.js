@@ -31,7 +31,19 @@ exports.handler = async (event) => {
     if (image.length > 4.5e6) return json(413, { error: 'image too large' });
     // Default: FLUX Kontext (image-to-image edit) turns the elevation into a photo and drops the
     // annotations; 'canny' (edge-following) is kept as an option.
-    const useCanny = (JSON.parse(event.body || '{}').mode === 'canny');
+    const body = JSON.parse(event.body || '{}');
+    const useCanny = body.mode === 'canny';
+    // 'merge': put the rendered building (image2) into the real Street View photo of the lot (image).
+    if (body.mode === 'merge') {
+      const image2 = body.image2;
+      const ok2 = typeof image2 === 'string' && (image2.startsWith('data:image/') || /^https:\/\/([a-z0-9.-]+\.)?replicate\.delivery\//.test(image2));
+      if (!ok2 || image2.length > 4.5e6) return json(400, { error: 'image2 (data URL or Replicate output URL) required' });
+      const mi = { prompt: String(prompt || '').slice(0, 1800), input_image_1: image, input_image_2: image2, aspect_ratio: 'match_input_image', output_format: 'jpg', safety_tolerance: 2 };
+      const mr = await fetch(API + '/models/flux-kontext-apps/multi-image-kontext-pro/predictions', { method: 'POST', headers: auth, body: JSON.stringify({ input: mi }) });
+      const md = await mr.json();
+      if (!mr.ok) return json(mr.status, { error: md.detail || md.title || 'replicate error' });
+      return json(200, { id: md.id, status: md.status });
+    }
     const model = useCanny ? MODEL : 'black-forest-labs/flux-kontext-pro';
     const input = useCanny
       ? { control_image: image, prompt: String(prompt || '').slice(0, 1800), steps: 50, guidance: 40, output_format: 'jpg', safety_tolerance: 2, prompt_upsampling: false }

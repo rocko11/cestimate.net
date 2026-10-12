@@ -855,7 +855,7 @@ const BORO_MAP={'Manhattan':'1.0','Brooklyn':'0.92','Queens':'0.90','Bronx':'0.8
 
 function fillMetrics(p){
   const nb=v=>(typeof v==='number'&&!Number.isNaN(v))?v:''; // number, else blank
-  setV('m-name',p.projectName||''); setV('m-job',p.dobJob||'');
+  setV('m-name',p.projectName||''); setV('m-job',p.dobJob||''); if(p.address) window._planAddress=String(p.address);
   if(p.borough&&BORO_MAP[p.borough]) setSel('m-borough',BORO_MAP[p.borough]);
   setV('m-gfa',nb(p.gfa)); setV('m-nsf',nb(p.nsf)); setV('m-footprint',nb(p.footprint));
   setV('m-floors',nb(p.floors)); setV('m-units',nb(p.units));
@@ -2268,7 +2268,7 @@ async function generateAIImage(){
   // the real facade (window pattern, balconies, massing) instead of
   // inventing a generic building from text alone. Falls back to the old
   // schematic SVG only if image generation is unavailable entirely.
-  const oldPhoto=document.getElementById('ai-render-photo'); if(oldPhoto) oldPhoto.remove();
+  const oldPhoto=document.getElementById('ai-render-photo'); if(oldPhoto) oldPhoto.remove(); const oldTg=document.getElementById('render-view-toggle'); if(oldTg) oldTg.remove();
   cap.textContent='Rendering photorealistic exterior…';
   const facadePrompt = renderDesc
     ? (elevationImg
@@ -2287,7 +2287,18 @@ async function generateAIImage(){
         img.style.cssText='width:100%;height:100%;object-fit:contain;background:#eef1f5;display:block;';
         loading.style.display='none'; container.appendChild(img); photoOk=true;
         cap.textContent='Photo rendering made from your front elevation sheet. '+(renderDesc?renderDesc.slice(0,200):'');
-        btn.disabled=false; if(btn.dataset.label) btn.textContent=btn.dataset.label; track('render_elevation');
+        track('render_elevation');
+        // Put it on the real street: Google Street View of the address + the rendered facade -> one photo.
+        const addr=renderAddress(boro);
+        if(addr){
+          try{
+            const onStreet=await placeOnStreet(url,addr,m,cap);
+            if(onStreet){ showRenderViews({street:onStreet.image,facade:url},'street');
+              cap.textContent='Your building from the plans, placed at '+addr+' in the Google Street View photo'+(onStreet.date?(' ('+onStreet.date+')'):'')+'. Switch to "Façade" for the straight-on view of the elevation.';
+            } else cap.textContent='Photo rendering made from your front elevation sheet. (Street view not available for '+addr+'.)';
+          }catch(e){ console.warn('street placement failed',e); cap.textContent='Photo rendering made from your front elevation sheet. (Could not place it on the street: '+(e.message||e)+')'; }
+        } else cap.textContent='Photo rendering made from your front elevation sheet. Add the street address above the image and press Regenerate to see it on the real street.';
+        btn.disabled=false; if(btn.dataset.label) btn.textContent=btn.dataset.label;
         return;
       }
     }catch(e){ console.warn('elevation rendering failed, falling back',e); }
@@ -2366,6 +2377,42 @@ async function elevationJob(body,cap,label){
     if(p.status==='failed'||p.status==='canceled') throw new Error(p.error||p.status);
   }
   throw new Error('rendering timed out');
+}
+// Address used for the street photo: the field above the rendering, else the address read from the plans,
+// else the project name when it looks like a street address.
+function renderAddress(boro){
+  const f=document.getElementById('render-addr');
+  let a=(f&&f.value.trim())||window._planAddress||'';
+  if(!a){ const n=getV('m-name')||''; if(/^\s*\d+[A-Z]?(-\d+)?\s+\S+/i.test(n)) a=n; }
+  a=a.replace(/\s+/g,' ').trim(); if(!a) return '';
+  if(f&&!f.value.trim()) f.value=a;
+  if(!/\b(NY|New York|Brooklyn|Manhattan|Queens|Bronx|Staten Island)\b/i.test(a)) a+=', '+boro+', NY';
+  return a;
+}
+async function placeOnStreet(facadeUrl,addr,m,cap){
+  cap.textContent='Getting the Street View photo of '+addr+'…';
+  const r=await fetch('/.netlify/functions/streetview?pitch='+(m.floors>=6?22:12)+'&address='+encodeURIComponent(addr));
+  const sv=await r.json().catch(()=>({}));
+  if(r.status===501) throw new Error('Google Street View key not set up yet');
+  if(!r.ok||!sv.image) return null;
+  const prompt='Image 1 is a real street photo taken at '+addr+'. Image 2 is the new '+m.floors+'-story building designed for this lot. '+
+    'Replace the building or empty lot in the center of image 1 that the camera is pointing at with the building from image 2, built on that same lot between the existing neighbors. '+
+    'Keep the new building exactly as in image 2: same '+m.floors+' stories, same window grid, balconies, materials, colors, storefront and rooftop bulkhead. '+
+    'Keep everything else in image 1 unchanged: the neighboring buildings on both sides, street, sidewalk, cars, trees, sky and light. Match the camera angle and perspective of image 1 so the new building sits naturally on the street. Photorealistic, no text.';
+  const out=await elevationJob({mode:'merge',image:sv.image,image2:facadeUrl,prompt},cap,'Placing the building on the real street\u2026');
+  let data=out; try{ const b=await (await fetch(out)).blob(); data=await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=()=>res(out); fr.readAsDataURL(b); }); }catch(e){}
+  return {image:data,date:sv.date};
+}
+// Street / Façade toggle inside the rendering panel.
+function showRenderViews(v,which){
+  const container=document.getElementById('ai-render-container'); window._renderViews=v;
+  const img=document.getElementById('ai-render-photo'); if(img) img.src=v[which]||v.facade;
+  let t=document.getElementById('render-view-toggle');
+  if(!t){ t=document.createElement('div'); t.id='render-view-toggle'; t.style.cssText='position:absolute;left:8px;top:8px;display:flex;gap:4px;z-index:2';
+    t.innerHTML=['street','facade'].map(k=>'<button data-k="'+k+'" style="font:600 11px inherit;font-family:inherit;padding:4px 9px;border-radius:6px;border:1px solid rgba(255,255,255,.25);cursor:pointer">'+(k==='street'?'On the street':'Façade')+'</button>').join('');
+    t.onclick=e=>{ const k=e.target&&e.target.dataset&&e.target.dataset.k; if(k) showRenderViews(window._renderViews,k); };
+    container.appendChild(t); }
+  t.querySelectorAll('button').forEach(b=>{ const on=b.dataset.k===which; b.style.background=on?'#1d6fb8':'rgba(10,21,32,.75)'; b.style.color=on?'#fff':'#cfe3f5'; });
 }
 async function renderFromElevation(src,box,m,boro,wt,desc,cap){
   const page=await renderPageCanvas(src.entry,src.pi,2400);
