@@ -2366,8 +2366,13 @@ function findBuildingBox(page){
   return [cx0/W,ry0/H,cx1/W,ry1/H];
 }
 async function elevationJob(body,cap,label){
-  const r=await fetch('/.netlify/functions/render-elevation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  const d=await r.json().catch(()=>({}));
+  let r,d;
+  for(let t=0;t<4;t++){ // Replicate throttles to 1 burst / 6 per minute on low-credit accounts — wait and retry
+    r=await fetch('/.netlify/functions/render-elevation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    d=await r.json().catch(()=>({}));
+    if(r.status===429||/throttl/i.test(d.error||'')){ if(cap) cap.textContent=label+' (render service busy, retrying…)'; await new Promise(res=>setTimeout(res,11000)); continue; }
+    break;
+  }
   if(!r.ok||!d.id) throw new Error(d.error||('render-elevation '+r.status));
   for(let i=0;i<40;i++){
     await new Promise(res=>setTimeout(res,3000));
