@@ -2414,7 +2414,7 @@ async function placeOnStreet(facadeUrl,addr,m,cap){
     const prompt='Image 1 is a Google Street View photo aimed at '+addr+'. Image 2 is a rendering of the new building that will replace whatever is on that lot. '+
       'Respond with ONLY compact JSON: {"lot":[x0,y0,x1,y1],"building":[x0,y0,x1,y1]} as fractions 0-1 of each image. '+
       '"lot" = in image 1, the front face of the existing building (or empty lot / fence) at this address — the one the camera points at, usually centered — from its left edge to its right edge, y1 = where it meets the sidewalk, y0 = its current roof. Do not include neighboring buildings, trees in front are fine. '+
-      '"building" = in image 2, the new building only (not the sky, street, sidewalk or neighboring buildings at the sides), from roof/bulkhead top to the sidewalk.';
+      '"building" = in image 2, the new building only (not the sky, street, sidewalk or neighboring buildings at the sides): y0 = top of the roof/bulkhead, y1 = the bottom edge of the ground-floor storefronts and doors — exclude the sidewalk, curb, street and any trees or cars in front.';
     const resp=await postProxy({parts:[{media_type:'image/jpeg',data:s1.split(',')[1]},{media_type:'image/jpeg',data:s2.split(',')[1]}],prompt});
     if(resp.ok){ const d=await resp.json(); const j=JSON.parse(((d&&d.text)||'').replace(/```json|```/g,'').trim());
       const ok=b=>Array.isArray(b)&&b.length===4&&b.every(v=>v>=0&&v<=1)&&b[2]-b[0]>0.05&&b[3]-b[1]>0.05;
