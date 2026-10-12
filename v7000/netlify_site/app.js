@@ -2404,11 +2404,37 @@ async function placeOnStreet(facadeUrl,addr,m,cap){
   const sv=await r.json().catch(()=>({}));
   if(r.status===501) throw new Error('Google Street View key not set up yet');
   if(!r.ok||!sv.image) return null;
-  const prompt='Image 1 is a real street photo taken at '+addr+'. Image 2 is the new '+m.floors+'-story building designed for this lot. '+
-    'Replace the building or empty lot in the center of image 1 that the camera is pointing at with the building from image 2, built on that same lot between the existing neighbors. '+
-    'Keep the new building exactly as in image 2: same '+m.floors+' stories, same window grid, balconies, materials, colors, storefront and rooftop bulkhead. '+
-    'Keep everything else in image 1 unchanged: the neighboring buildings on both sides, street, sidewalk, cars, trees, sky and light. Match the camera angle and perspective of image 1 so the new building sits naturally on the street. Photorealistic, no text.';
-  const out=await elevationJob({mode:'merge',image:sv.image,image2:facadeUrl,prompt},cap,'Placing the building on the real street\u2026');
+  const load=src=>new Promise((res,rej)=>{ const im=new Image(); im.crossOrigin='anonymous'; im.onload=()=>res(im); im.onerror=rej; im.src=src; });
+  const [street,fac]=await Promise.all([load(sv.image),load(facadeUrl)]);
+  // 1) Find the lot in the real photo and the building in the facade render (Claude vision).
+  cap.textContent='Finding the lot in the street photo…';
+  let lot=null, bld=null;
+  try{
+    const s1=await shrinkImage(sv.image,800), s2=await shrinkImage(facadeUrl,800);
+    const prompt='Image 1 is a Google Street View photo aimed at '+addr+'. Image 2 is a rendering of the new building that will replace whatever is on that lot. '+
+      'Respond with ONLY compact JSON: {"lot":[x0,y0,x1,y1],"building":[x0,y0,x1,y1]} as fractions 0-1 of each image. '+
+      '"lot" = in image 1, the front face of the existing building (or empty lot / fence) at this address — the one the camera points at, usually centered — from its left edge to its right edge, y1 = where it meets the sidewalk, y0 = its current roof. Do not include neighboring buildings, trees in front are fine. '+
+      '"building" = in image 2, the new building only (not the sky, street, sidewalk or neighboring buildings at the sides), from roof/bulkhead top to the sidewalk.';
+    const resp=await postProxy({parts:[{media_type:'image/jpeg',data:s1.split(',')[1]},{media_type:'image/jpeg',data:s2.split(',')[1]}],prompt});
+    if(resp.ok){ const d=await resp.json(); const j=JSON.parse(((d&&d.text)||'').replace(/```json|```/g,'').trim());
+      const ok=b=>Array.isArray(b)&&b.length===4&&b.every(v=>v>=0&&v<=1)&&b[2]-b[0]>0.05&&b[3]-b[1]>0.05;
+      if(ok(j.lot)) lot=j.lot; if(ok(j.building)) bld=j.building; }
+  }catch(e){ console.warn('lot detection failed',e); }
+  lot=lot||[0.2,0.35,0.8,0.8]; bld=bld||[0.02,0.04,0.98,0.94];
+  // 2) Paste the new building onto the lot, standing on the sidewalk line, keeping its proportions.
+  const W=street.width,H=street.height, c=document.createElement('canvas'); c.width=W; c.height=H; const g=c.getContext('2d');
+  g.drawImage(street,0,0);
+  const sx=bld[0]*fac.width, sy=bld[1]*fac.height, sw=(bld[2]-bld[0])*fac.width, sh=(bld[3]-bld[1])*fac.height;
+  const dw=(lot[2]-lot[0])*W, dh=dw*sh/sw, dx=lot[0]*W, dyb=lot[3]*H;
+  g.drawImage(fac,sx,sy,sw,sh,dx,dyb-dh,dw,dh);
+  const composite=c.toDataURL('image/jpeg',0.92);
+  // 3) One photo pass to blend perspective, light and shadows — the street and neighbors stay as photographed.
+  const prompt='This is a real street photo of '+addr+' with the new '+m.floors+'-story building pasted onto the lot in the middle. Make it one seamless real photograph: '+
+    'blend the new building into the scene with the same camera perspective (verticals converge like the neighbors), matching daylight, shadows and color. '+
+    'Do not change the new building\'s design — same '+m.floors+' stories, windows, balconies, materials, storefront and bulkhead — and do not change anything else: '+
+    'keep the neighboring buildings, street, sidewalk, trees, cars, poles and sky exactly as they are. No text.';
+  let out=composite;
+  try{ out=await elevationJob({mode:'kontext',image:composite,prompt},cap,'Blending the building into the real street…'); }catch(e){ console.warn('blend pass failed, showing the composite',e); }
   let data=out; try{ const b=await (await fetch(out)).blob(); data=await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=()=>res(out); fr.readAsDataURL(b); }); }catch(e){}
   return {image:data,date:sv.date};
 }
