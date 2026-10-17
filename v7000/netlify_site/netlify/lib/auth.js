@@ -16,7 +16,7 @@ async function store(event) {
   if (_store) return _store;
   const { connectLambda, getStore } = require('@netlify/blobs');
   if (event && event.blobs) connectLambda(event);
-  _store = getStore({ name: 'rest-auth', consistency: 'strong' });
+  _store = getStore('rest-auth');
   return _store;
 }
 async function getJSON(st, key) { const v = await st.get(key, { type: 'json' }); return v || null; }
