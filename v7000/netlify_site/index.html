@@ -20,7 +20,7 @@
         var top=document.querySelector('.tb-top'); if(!top||!d.user) return;
         var c=document.createElement('div'); c.className='user-chip';
         var esc=function(x){ return String(x||'').replace(/[&<>"]/g,function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]; }); };
-        c.innerHTML='<span class="uc-name">'+esc(d.user.name||d.user.email)+'</span>'+(d.user.role==='admin'?'<a href="/admin">Users</a>':'')+'<button type="button" onclick="restSignOut()">Sign out</button>';
+        c.innerHTML='<span class="uc-name">'+esc(d.user.name||d.user.email)+'</span>'+(d.user.role==='admin'?'<a href="/admin">Admin</a>':'')+'<button type="button" onclick="restSignOut()">Sign out</button>';
         top.appendChild(c);
       };
       if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',show); else show();
@@ -93,7 +93,7 @@
       <input type="file" id="fileinput" multiple accept="application/pdf,image/*,.dwg,.dxf" style="display:none">
     </div>
     <div class="filelist" id="filelist"></div>
-    <div class="note" style="margin-top:12px">Large files are fine — each plan is automatically compressed in your browser as soon as you add it (you'll see "12 MB → 0.8 MB ✓"), so it stays under the upload limit. For best accuracy, include the schedule sheets (window, door, MEP). Compression needs an internet connection.</div>
+    <div class="note" style="margin-top:12px">Large files are fine — each plan is automatically compressed in your browser as soon as you add it (you'll see "12 MB → 0.8 MB ✓"), so it stays under the upload limit. For best accuracy, include the schedule sheets (window, door, MEP). Compression needs an internet connection. A copy of every file you add is saved to your account.</div>
   </div>
   <div class="actions">
     <button class="btn btn-primary" id="analyze-btn" onclick="analyzePlans()" disabled>Analyze plans with AI →</button>
@@ -471,7 +471,8 @@ window.addEventListener('error',function(e){
   if(el){ el.textContent='Script error: '+(e.message||'unknown')+'  — please report this.'; el.classList.remove('hidden'); }
 });
 </script>
-<script src="app.js?v=20261017-a"></script>
+<script src="vault.js?v=20261017-a"></script>
+<script src="app.js?v=20261017-b"></script>
 
 <!-- 3D RENDERING MODAL -->
 <div id="rendering-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,20,38,.93);overflow:auto;">

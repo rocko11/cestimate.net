@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Users — R Estimator</title>
+<title>Admin — R Estimator</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 58 58'><rect width='58' height='58' rx='13' fill='%230B2239'/><g transform='translate(3.5,12.5) scale(0.47)' fill='none' stroke-linecap='round' stroke-linejoin='round'><path d='M14 6C12 20 13 38 12 62' stroke='%23fff' stroke-width='13'/><path d='M14 6C26 1 58 4 68 20C78 36 66 52 14 52' stroke='%23fff' stroke-width='13'/><path d='M36 52C58 56 80 60 98 64' stroke='%23fff' stroke-width='12'/><path d='M98 64C103 60 104 54 100 50' stroke='%23F2A900' stroke-width='10'/></g></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -40,11 +40,18 @@ body{font-family:'Inter',Arial,sans-serif;color:var(--text);font-size:14px;line-
 <body>
 <div class="app">
   <div class="top">
-    <div><div class="brand">P National Group</div><h1>R Estimator · Users</h1></div>
+    <div><div class="brand">P National Group</div><h1>R Estimator · Admin</h1></div>
     <a href="/">← Back to estimator</a>
   </div>
   <div class="msg" id="msg"></div>
   <div class="card"><h2>Accounts</h2><div id="list"><div class="empty">Loading…</div></div></div>
+  <div class="card" id="files-card"><h2 style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><span>Uploaded files</span>
+    <span style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-weight:500">
+      <select id="f-user" style="font:13px Inter,sans-serif;border:1px solid var(--line);border-radius:7px;padding:4px 6px"><option value="">All users</option></select>
+      <input id="f-q" placeholder="Search file name" style="font:13px Inter,sans-serif;border:1px solid var(--line);border-radius:7px;padding:4px 8px;width:170px">
+    </span></h2>
+    <div id="files"><div class="empty">Loading…</div></div></div>
+  <p class="note">Every file a signed-in user adds in the estimator (plans, CAD, budgets, saved estimates) is kept here. <b>Open</b> shows PDFs and images in a new tab; other types download.</p>
   <p class="note">New people request access from the sign-in page and appear here as <b>pending</b>. Approve them to let them in; disable to cut access immediately. There is no email reset, so set a new password here and send it to them.</p>
 </div>
 <script>
@@ -85,10 +92,58 @@ document.getElementById('list').addEventListener('click',async ev=>{
     load();
   }catch(e){ msg.style.color='var(--red)'; msg.textContent=e.message; }
 });
+
+// ---------- Uploaded files ----------
+const FAPI='/.netlify/functions/files'; let allFiles=[];
+const mb=n=>n>=1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,Math.round(n/1024))+' KB';
+async function fpost(body){ const r=await fetch(FAPI,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body)}); const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||('Error '+r.status)); return d; }
+function frow(f){
+  const when=f.uploaded?new Date(f.uploaded).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}):'';
+  const st=f.status==='complete'?'':'<span class="pill p-pending">'+esc(f.status)+'</span>';
+  return `<div class="row"><div class="who"><b>${esc(f.name)}</b><span>${esc(f.ownerName||f.owner)} · ${esc(f.owner)}</span></div>
+    <div><div class="meta">${mb(f.size)} · ${esc(when)}</div>${st}</div>
+    <div class="acts"><button class="go" data-f="open" data-id="${esc(f.id)}">Open</button><button data-f="dl" data-id="${esc(f.id)}">Download</button><button class="warn" data-f="del" data-id="${esc(f.id)}">Delete</button></div></div>`;
+}
+function drawFiles(){
+  const u=document.getElementById('f-user').value, q=document.getElementById('f-q').value.trim().toLowerCase();
+  const list=allFiles.filter(f=>(!u||f.owner===u)&&(!q||f.name.toLowerCase().includes(q)));
+  document.getElementById('files').innerHTML=list.length?list.map(frow).join(''):'<div class="empty">No files yet.</div>';
+}
+async function loadFiles(){
+  try{ allFiles=(await fpost({action:'list'})).files;
+    const sel=document.getElementById('f-user'), cur=sel.value, owners=[...new Map(allFiles.map(f=>[f.owner,f.ownerName||f.owner])).entries()];
+    sel.innerHTML='<option value="">All users ('+allFiles.length+' files)</option>'+owners.map(([e,n])=>'<option value="'+esc(e)+'">'+esc(n)+' — '+allFiles.filter(f=>f.owner===e).length+'</option>').join(''); sel.value=cur;
+    drawFiles(); }
+  catch(e){ document.getElementById('files').innerHTML='<div class="empty">'+esc(e.message)+'</div>'; }
+}
+async function fetchFile(f,btn){
+  const parts=[];
+  for(let n=0;n<f.chunks;n++){
+    btn.textContent=f.chunks>1?('Loading '+Math.round(n*100/f.chunks)+'%'):'Loading…';
+    const r=await fetch(FAPI+'?id='+encodeURIComponent(f.id)+'&n='+n,{credentials:'same-origin'}); const d=await r.json();
+    if(!r.ok) throw new Error(d.error||('Error '+r.status));
+    const bin=atob(d.data), u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); parts.push(u);
+  }
+  return new Blob(parts,{type:f.type||'application/octet-stream'});
+}
+document.getElementById('f-user').onchange=drawFiles; document.getElementById('f-q').oninput=drawFiles;
+document.getElementById('files').addEventListener('click',async ev=>{
+  const b=ev.target.closest('button'); if(!b) return; const f=allFiles.find(x=>x.id===b.dataset.id); if(!f) return;
+  const label=b.textContent, msg=document.getElementById('msg'); msg.textContent='';
+  try{
+    if(b.dataset.f==='del'){ if(b.dataset.sure!=='1'){ b.dataset.sure='1'; b.textContent='Click again to delete'; return; } await fpost({action:'delete',id:f.id}); allFiles=allFiles.filter(x=>x!==f); drawFiles(); return; }
+    const win=(b.dataset.f==='open'&&/^(application\/pdf|image\/)/.test(f.type))?window.open('','_blank'):null;
+    const blob=await fetchFile(f,b), url=URL.createObjectURL(blob);
+    if(win){ win.location.href=url; }
+    else { const a=document.createElement('a'); a.href=url; a.download=f.name; document.body.appendChild(a); a.click(); a.remove(); }
+    setTimeout(()=>URL.revokeObjectURL(url),120000);
+  }catch(e){ msg.style.color='var(--red)'; msg.textContent=f.name+': '+e.message; }
+  b.textContent=label;
+});
 fetch(API+'?me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(d=>{
   if(!d){ location.replace('/login?next=/admin'); return; }
-  me=d.user; if(me.role!=='admin'){ document.getElementById('list').innerHTML='<div class="empty">Only admins can manage users.</div>'; return; }
-  load();
+  me=d.user; if(me.role!=='admin'){ document.getElementById('list').innerHTML='<div class="empty">Only admins can manage users.</div>'; document.getElementById('files-card').style.display='none'; return; }
+  load(); loadFiles();
 });
 </script>
 </body>

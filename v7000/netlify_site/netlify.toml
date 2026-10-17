@@ -44,3 +44,7 @@
   [headers.values]
     X-Frame-Options = "DENY"
     Cache-Control = "no-store"
+
+# Saved uploads: chunk writes/reads of ~3.5 MB each
+[functions.files]
+  timeout = 26
