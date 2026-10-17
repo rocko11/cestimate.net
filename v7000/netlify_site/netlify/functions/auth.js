@@ -96,6 +96,6 @@ exports.handler = async (event) => {
     return json(400, { error: 'Unknown action' });
   } catch (e) {
     console.error('auth error', e);
-    return json(500, { error: 'Sign-in service error' });
+    return json(500, { error: 'Sign-in service error', detail: String((e && (e.name + ': ' + e.message)) || e).slice(0, 300) });
   }
 };
