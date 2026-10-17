@@ -271,3 +271,10 @@ td .rm:hover{color:var(--red)}
 .elec-kpis .l{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:2px}
 #elec table{margin-top:.4rem}
 @media (max-width:640px){.elec-kpis{grid-template-columns:repeat(2,1fr)}}
+
+/* signed-in user, top right of the title block */
+.user-chip{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;align-self:flex-start}
+.user-chip .uc-name{color:#CFE3F5;font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-chip a,.user-chip button{font:600 12px 'Inter',sans-serif;color:#CFE3F5;background:transparent;border:1px solid rgba(255,255,255,.25);border-radius:7px;padding:4px 10px;cursor:pointer;text-decoration:none}
+.user-chip a:hover,.user-chip button:hover{border-color:var(--amber);color:#fff}
+@media (max-width:700px){ .tb-top{flex-wrap:wrap} .user-chip{margin-left:0;width:100%} }

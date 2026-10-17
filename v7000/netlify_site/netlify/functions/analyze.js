@@ -1,3 +1,4 @@
+const { requireUser, unauthorized } = require('../lib/auth');
 // Netlify serverless function — server-side proxy to the Anthropic API.
 // The API key lives in the ANTHROPIC_API_KEY environment variable (set in the
 // Netlify dashboard), never in the browser. The frontend posts one plan file
@@ -6,6 +7,8 @@
 // Endpoint (after deploy):  /.netlify/functions/analyze
 const FN_VERSION = '2026-09-30a';
 exports.handler = async (event) => {
+  // Signed-in, approved accounts only (these calls cost money).
+  if (event.httpMethod !== 'GET' && event.httpMethod !== 'OPTIONS' && !(await requireUser(event))) return unauthorized();
   // Health check: GET returns the deployed function version (proves what's live).
   if (event.httpMethod === 'GET') {
     return { statusCode: 200, headers: { 'content-type': 'application/json' },

@@ -1,3 +1,4 @@
+const { requireUser, unauthorized } = require('../lib/auth');
 // netlify/functions/streetview.js
 // Google Street View photo of the project address, used as the real street the new building is placed into.
 // Setup: Google Cloud > enable "Street View Static API" > create an API key, then
@@ -5,6 +6,8 @@
 // GET ?address=915 Dean St, Brooklyn, NY[&pitch=18&fov=90] -> {image:"data:image/jpeg;base64,...", date, pano}
 const json = (code, obj) => ({ statusCode: code, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) });
 exports.handler = async (event) => {
+  // Signed-in, approved accounts only (these calls cost money).
+  if (event.httpMethod !== 'OPTIONS' && !(await requireUser(event))) return unauthorized();
   const key = process.env.GOOGLE_MAPS_API_KEY;
   if (!key) return json(501, { error: 'GOOGLE_MAPS_API_KEY is not configured on the server' });
   const q = event.queryStringParameters || {};

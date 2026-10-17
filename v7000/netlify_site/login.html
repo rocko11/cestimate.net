@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in — R Estimator</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 58 58'><rect width='58' height='58' rx='13' fill='%230B2239'/><g transform='translate(3.5,12.5) scale(0.47)' fill='none' stroke-linecap='round' stroke-linejoin='round'><path d='M14 6C12 20 13 38 12 62' stroke='%23fff' stroke-width='13'/><path d='M14 6C26 1 58 4 68 20C78 36 66 52 14 52' stroke='%23fff' stroke-width='13'/><path d='M36 52C58 56 80 60 98 64' stroke='%23fff' stroke-width='12'/><path d='M98 64C103 60 104 54 100 50' stroke='%23F2A900' stroke-width='10'/></g></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0B2239; --ink-2:#123A5E; --blue:#1D6FB8; --blue-lt:#E8F1F9; --amber:#F2A900; --amber-dk:#C98A00;
+  --green:#0F7A5A; --red:#C0392B; --paper:#F3F6FA; --card:#fff; --line:#D5E0EA; --text:#0E2233; --muted:#5C7086;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:var(--text);font-size:14px;line-height:1.5;background:var(--paper)}
+.wrap{min-height:100%;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr)}
+
+/* ---- Sheet side: the title block of a drawing set ---- */
+.sheet{position:relative;background:var(--ink);color:#fff;padding:44px 48px;display:flex;flex-direction:column;overflow:hidden;
+  background-image:linear-gradient(rgba(29,111,184,.16) 1px,transparent 1px),linear-gradient(90deg,rgba(29,111,184,.16) 1px,transparent 1px);
+  background-size:26px 26px}
+.sheet::after{content:"";position:absolute;inset:18px;border:1px solid rgba(255,255,255,.14);pointer-events:none}
+.brandrow{display:flex;align-items:center;gap:14px;position:relative;z-index:1}
+.brand{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--amber)}
+.brandrow h1{font-family:'Barlow Condensed','Inter',sans-serif;font-size:30px;font-weight:700;letter-spacing:.02em;line-height:1;text-transform:uppercase}
+.pitch{margin-top:auto;position:relative;z-index:1;max-width:460px}
+.pitch h2{font-family:'Barlow Condensed','Inter',sans-serif;font-size:44px;line-height:1.02;font-weight:700;text-transform:uppercase;letter-spacing:.01em}
+.pitch .rule{height:3px;width:64px;background:var(--amber);margin:16px 0 14px;border-radius:2px}
+.pitch p{color:#A9C2D8;font-size:14px;line-height:1.6}
+/* elevation drawing — a building in linework, the thing this app reads */
+.elev{position:absolute;right:56px;top:96px;width:190px;opacity:.5;z-index:0}
+@media (max-height:760px){.elev{display:none}}
+.strip{position:relative;z-index:1;margin-top:34px;display:grid;grid-template-columns:repeat(3,1fr);border:1px solid rgba(255,255,255,.18);font-family:'IBM Plex Mono',monospace}
+.strip div{padding:9px 12px;border-right:1px solid rgba(255,255,255,.18)}
+.strip div:last-child{border-right:0}
+.strip small{display:block;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#7FA0BD}
+.strip b{display:block;font-size:12px;font-weight:500;color:#fff;margin-top:2px}
+
+/* ---- Form side ---- */
+.side{display:flex;align-items:center;justify-content:center;padding:40px 24px;
+  background-image:linear-gradient(rgba(29,111,184,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(29,111,184,.055) 1px,transparent 1px);background-size:26px 26px}
+.card{width:100%;max-width:400px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 2px rgba(11,34,57,.05),0 10px 30px rgba(11,34,57,.08);padding:28px 28px 24px}
+.tabs{display:grid;grid-template-columns:1fr 1fr;background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:3px;margin-bottom:22px}
+.tabs button{border:0;background:transparent;font:600 13px 'Inter',sans-serif;color:var(--muted);padding:8px 0;border-radius:7px;cursor:pointer}
+.tabs button[aria-selected="true"]{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(11,34,57,.12)}
+.card h3{font-family:'Barlow Condensed','Inter',sans-serif;font-size:24px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;color:var(--ink);line-height:1.1}
+.card .sub{color:var(--muted);font-size:13px;margin:4px 0 18px}
+label{display:block;font-size:12px;font-weight:600;color:var(--text);margin:12px 0 5px}
+.field{position:relative}
+input{width:100%;font:14px 'Inter',sans-serif;color:var(--text);background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 12px;outline:none;transition:border-color .15s, box-shadow .15s}
+input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(29,111,184,.15)}
+.show{position:absolute;right:8px;top:50%;transform:translateY(-50%);border:0;background:none;font:600 11px 'Inter',sans-serif;color:var(--blue);cursor:pointer;padding:4px 6px}
+.btn{width:100%;margin-top:20px;border:0;border-radius:8px;background:var(--blue);color:#fff;font:600 14px 'Inter',sans-serif;padding:11px 0;cursor:pointer;transition:background .15s}
+.btn:hover{background:#185E9D}
+.btn:disabled{opacity:.6;cursor:wait}
+.msg{display:none;margin-top:14px;font-size:13px;border-radius:8px;padding:9px 12px;line-height:1.45}
+.msg.err{display:block;background:#FDEDEB;color:var(--red);border:1px solid #F5C6C0}
+.msg.ok{display:block;background:#E7F5EF;color:var(--green);border:1px solid #BFE3D3}
+.fine{margin-top:18px;font-size:12px;color:var(--muted);text-align:center}
+.fine a{color:var(--blue);text-decoration:none;font-weight:600}
+[hidden]{display:none!important}
+
+@media (max-width:860px){
+  .wrap{grid-template-columns:1fr}
+  .sheet{padding:28px 24px 26px}
+  .sheet::after{inset:10px}
+  .pitch{margin-top:28px}
+  .pitch h2{font-size:32px}
+  .elev{display:none}
+  .strip{margin-top:22px}
+  .side{padding:24px 16px 40px}
+  .card{padding:22px 18px 20px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="sheet" aria-label="R Estimator">
+    <div class="brandrow">
+      <svg width="52" height="52" viewBox="0 0 58 58" fill="none" aria-hidden="true">
+        <rect x=".75" y=".75" width="56.5" height="56.5" rx="13" fill="#123A5E" stroke="#1D6FB8" stroke-width="1.5"/>
+        <path d="M9 15h40M9 24h40M9 33h40M9 42h40M16 9v40M25 9v40M34 9v40M43 9v40" stroke="#1D6FB8" stroke-opacity=".28" stroke-width="1"/>
+        <g transform="translate(3.5,12.5) scale(0.47)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M 14 6 C 12 20, 13 38, 12 62" stroke="#fff" stroke-width="12"/>
+          <path d="M 14 6 C 26 1, 58 4, 68 20 C 78 36, 66 52, 14 52" stroke="#fff" stroke-width="12"/>
+          <path d="M 36 52 C 58 56, 80 60, 98 64" stroke="#fff" stroke-width="11"/>
+          <path d="M 98 64 C 103 60, 104 54, 100 50" stroke="#F2A900" stroke-width="9"/>
+        </g>
+      </svg>
+      <div><div class="brand">P National Group</div><h1>R Estimator</h1></div>
+    </div>
+
+    <svg class="elev" viewBox="0 0 210 300" fill="none" stroke="#9CC3E6" stroke-width="1.2" aria-hidden="true">
+      <rect x="20" y="40" width="170" height="250"/><rect x="120" y="14" width="40" height="26"/>
+      <path d="M20 66h170M20 92h170M20 118h170M20 144h170M20 170h170M20 196h170M20 222h170M20 250h170M120 40v210"/>
+      <g stroke-width="1"><path d="M34 46h14v14H34zM62 46h14v14H62zM90 46h14v14H90zM132 46h14v14h-14zM160 46h14v14h-14z"/>
+      <path d="M34 72h14v14H34zM62 72h14v14H62zM90 72h14v14H90zM132 72h14v14h-14zM160 72h14v14h-14z"/>
+      <path d="M34 98h14v14H34zM62 98h14v14H62zM90 98h14v14H90zM132 98h14v14h-14zM160 98h14v14h-14z"/>
+      <path d="M34 124h14v14H34zM62 124h14v14H62zM90 124h14v14H90zM132 124h14v14h-14zM160 124h14v14h-14z"/>
+      <path d="M34 150h14v14H34zM62 150h14v14H62zM90 150h14v14H90zM132 150h14v14h-14zM160 150h14v14h-14z"/>
+      <path d="M34 176h14v14H34zM62 176h14v14H62zM90 176h14v14H90zM132 176h14v14h-14zM160 176h14v14h-14z"/>
+      <path d="M34 202h14v14H34zM62 202h14v14H62zM90 202h14v14H90zM132 202h14v14h-14zM160 202h14v14h-14z"/>
+      <path d="M32 258h40v32H32zM84 258h40v32H84zM140 262h18v28h-18z"/></g>
+      <path d="M0 290h210" stroke="#F2A900" stroke-width="1.6"/>
+    </svg>
+
+    <div class="pitch">
+      <h2>From approved plans to a priced takeoff.</h2>
+      <div class="rule"></div>
+      <p>Floor areas, units, doors and windows read from the drawing set, priced at current New York rates, with labor, schedule and a client-ready proposal.</p>
+    </div>
+    <div class="strip">
+      <div><small>Discipline</small><b>Hard-cost estimate</b></div>
+      <div><small>Market</small><b>NYC · 5 boroughs</b></div>
+      <div><small>Access</small><b>Approved accounts</b></div>
+    </div>
+  </section>
+
+  <main class="side">
+    <div class="card">
+      <div class="tabs" role="tablist">
+        <button role="tab" id="tab-in" aria-selected="true" onclick="show('in')">Sign in</button>
+        <button role="tab" id="tab-up" aria-selected="false" onclick="show('up')">Request access</button>
+      </div>
+
+      <form id="f-in" onsubmit="return go(event,'login')" novalidate>
+        <h3>Welcome back</h3>
+        <p class="sub">Sign in to your estimating workspace.</p>
+        <label for="in-email">Email</label>
+        <input id="in-email" name="email" type="email" autocomplete="username" required>
+        <label for="in-pw">Password</label>
+        <div class="field"><input id="in-pw" name="password" type="password" autocomplete="current-password" required><button type="button" class="show" onclick="peek('in-pw',this)">Show</button></div>
+        <button class="btn" id="in-btn" type="submit">Sign in</button>
+        <div class="msg" id="in-msg" role="alert"></div>
+        <p class="fine">Forgot your password? Ask your P National admin to reset it.</p>
+      </form>
+
+      <form id="f-up" onsubmit="return go(event,'signup')" novalidate hidden>
+        <h3>Request access</h3>
+        <p class="sub">P National approves each new account.</p>
+        <label for="up-name">Full name</label>
+        <input id="up-name" name="name" autocomplete="name" required>
+        <label for="up-company">Company</label>
+        <input id="up-company" name="company" autocomplete="organization">
+        <label for="up-email">Email</label>
+        <input id="up-email" name="email" type="email" autocomplete="email" required>
+        <label for="up-pw">Password <span style="font-weight:400;color:var(--muted)">(8+ characters)</span></label>
+        <div class="field"><input id="up-pw" name="password" type="password" autocomplete="new-password" minlength="8" required><button type="button" class="show" onclick="peek('up-pw',this)">Show</button></div>
+        <button class="btn" id="up-btn" type="submit">Request access</button>
+        <div class="msg" id="up-msg" role="alert"></div>
+      </form>
+    </div>
+  </main>
+</div>
+
+<script>
+const API='/.netlify/functions/auth';
+const next=(()=>{ const n=new URLSearchParams(location.search).get('next')||'/'; return /^\/(?!\/)/.test(n)?n:'/'; })();
+function show(w){
+  document.getElementById('f-in').hidden=w!=='in'; document.getElementById('f-up').hidden=w!=='up';
+  document.getElementById('tab-in').setAttribute('aria-selected',w==='in'); document.getElementById('tab-up').setAttribute('aria-selected',w==='up');
+  document.getElementById(w==='in'?'in-email':'up-name').focus();
+}
+function peek(id,b){ const i=document.getElementById(id); i.type=i.type==='password'?'text':'password'; b.textContent=i.type==='password'?'Show':'Hide'; }
+function say(id,text,ok){ const m=document.getElementById(id); m.className='msg '+(ok?'ok':'err'); m.textContent=text; }
+async function go(e,action){
+  e.preventDefault();
+  const p=action==='login'?'in':'up', f=e.target, btn=document.getElementById(p+'-btn');
+  const body={action}; new FormData(f).forEach((v,k)=>body[k]=String(v));
+  if(!body.email||!body.password){ say(p+'-msg','Enter your email and password.'); return false; }
+  if(action==='signup'&&!body.name){ say(p+'-msg','Enter your name.'); return false; }
+  btn.disabled=true; const label=btn.textContent; btn.textContent=action==='login'?'Signing in…':'Sending…';
+  try{
+    const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body)});
+    const d=await r.json().catch(()=>({}));
+    if(r.ok&&d.user){ location.replace(next); return false; }
+    if(r.ok&&d.pending){ say(p+'-msg',d.message,true); f.reset(); }
+    else say(p+'-msg',d.error||'Something went wrong. Try again.');
+  }catch(err){ say(p+'-msg','Could not reach the server. Check your connection.'); }
+  btn.disabled=false; btn.textContent=label; return false;
+}
+// Already signed in? Go straight to the app.
+fetch(API+'?me',{credentials:'same-origin'}).then(r=>{ if(r.ok) location.replace(next); }).catch(()=>{});
+if(location.hash==='#request') show('up');
+</script>
+</body>
+</html>

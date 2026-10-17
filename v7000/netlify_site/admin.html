@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Users — R Estimator</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 58 58'><rect width='58' height='58' rx='13' fill='%230B2239'/><g transform='translate(3.5,12.5) scale(0.47)' fill='none' stroke-linecap='round' stroke-linejoin='round'><path d='M14 6C12 20 13 38 12 62' stroke='%23fff' stroke-width='13'/><path d='M14 6C26 1 58 4 68 20C78 36 66 52 14 52' stroke='%23fff' stroke-width='13'/><path d='M36 52C58 56 80 60 98 64' stroke='%23fff' stroke-width='12'/><path d='M98 64C103 60 104 54 100 50' stroke='%23F2A900' stroke-width='10'/></g></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0B2239;--blue:#1D6FB8;--amber:#F2A900;--green:#0F7A5A;--red:#C0392B;--paper:#F3F6FA;--line:#D5E0EA;--text:#0E2233;--muted:#5C7086}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',Arial,sans-serif;color:var(--text);font-size:14px;line-height:1.5;background:var(--paper);
+  background-image:linear-gradient(rgba(29,111,184,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(29,111,184,.055) 1px,transparent 1px);background-size:26px 26px}
+.app{max-width:1000px;margin:0 auto;padding:24px 16px 60px}
+.top{background:var(--ink);color:#fff;border-radius:12px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.top .brand{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--amber)}
+.top h1{font-family:'Barlow Condensed',sans-serif;font-size:26px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;line-height:1.05}
+.top a{color:#CFE3F5;text-decoration:none;font-size:13px;font-weight:600;border:1px solid rgba(255,255,255,.25);border-radius:7px;padding:6px 12px}
+.card{margin-top:16px;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.card h2{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:12px 16px;border-bottom:1px solid var(--line)}
+.row{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,.8fr) auto;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid #EBF1F6}
+.row:last-child{border-bottom:0}
+.who b{display:block;font-weight:600}
+.who span{display:block;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meta{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted)}
+.pill{display:inline-block;font:600 10.5px 'Inter',sans-serif;letter-spacing:.06em;text-transform:uppercase;border-radius:20px;padding:2px 8px;margin-right:4px}
+.p-pending{background:#FFF6E3;color:#8A5E00}.p-active{background:#E7F5EF;color:var(--green)}.p-disabled{background:#FDEDEB;color:var(--red)}.p-admin{background:#E8F1F9;color:var(--blue)}
+.acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.acts button{font:600 12px 'Inter',sans-serif;border-radius:7px;padding:6px 10px;cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--text)}
+.acts .go{background:var(--green);border-color:var(--green);color:#fff}
+.acts .warn{color:var(--red)}
+.acts input{font:13px 'Inter',sans-serif;border:1px solid var(--line);border-radius:7px;padding:5px 8px;width:150px}
+.empty,.note{padding:16px;color:var(--muted);font-size:13px}
+.msg{margin-top:12px;font-size:13px;color:var(--red)}
+@media (max-width:700px){ .row{grid-template-columns:1fr} .acts{justify-content:flex-start} }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div><div class="brand">P National Group</div><h1>R Estimator · Users</h1></div>
+    <a href="/">← Back to estimator</a>
+  </div>
+  <div class="msg" id="msg"></div>
+  <div class="card"><h2>Accounts</h2><div id="list"><div class="empty">Loading…</div></div></div>
+  <p class="note">New people request access from the sign-in page and appear here as <b>pending</b>. Approve them to let them in; disable to cut access immediately. There is no email reset, so set a new password here and send it to them.</p>
+</div>
+<script>
+const API='/.netlify/functions/auth';
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let me=null;
+async function post(body){ const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body)}); const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||('Error '+r.status)); return d; }
+const day=s=>s?new Date(s).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
+function row(u){
+  const self=me&&u.email===me.email, e=esc(u.email);
+  let acts='';
+  if(!self){
+    if(u.status!=='active') acts+=`<button class="go" data-a="active" data-e="${e}">Approve</button>`;
+    if(u.status==='active') acts+=`<button data-a="disabled" data-e="${e}">Disable</button>`;
+    acts+= u.role==='admin'?`<button data-a="user" data-e="${e}">Remove admin</button>`:`<button data-a="admin" data-e="${e}">Make admin</button>`;
+  }
+  acts+=`<button data-a="reset" data-e="${e}">Set password</button>`;
+  if(!self) acts+=`<button class="warn" data-a="delete" data-e="${e}">Delete</button>`;
+  return `<div class="row"><div class="who"><b>${esc(u.name)}${self?' (you)':''}</b><span>${e}${u.company?' · '+esc(u.company):''}</span></div>
+    <div><span class="pill p-${u.status}">${u.status}</span>${u.role==='admin'?'<span class="pill p-admin">admin</span>':''}
+    <div class="meta">joined ${day(u.created)} · last in ${day(u.lastLogin)}</div></div><div class="acts">${acts}</div></div>`;
+}
+async function load(){
+  try{ const d=await post({action:'list'}); document.getElementById('list').innerHTML=d.users.length?d.users.map(row).join(''):'<div class="empty">No accounts yet.</div>'; }
+  catch(e){ document.getElementById('msg').textContent=e.message; }
+}
+document.getElementById('list').addEventListener('click',async ev=>{
+  const b=ev.target.closest('button'); if(!b) return; const a=b.dataset.a, email=b.dataset.e, msg=document.getElementById('msg'); msg.textContent='';
+  try{
+    if(a==='delete'){ if(b.dataset.sure!=='1'){ b.dataset.sure='1'; b.textContent='Click again to delete'; return; } await post({action:'delete',email}); }
+    else if(a==='reset'){
+      const box=b.parentElement; let inp=box.querySelector('input');
+      if(!inp){ inp=document.createElement('input'); inp.type='text'; inp.placeholder='New password (8+)'; box.insertBefore(inp,b); b.textContent='Save password'; inp.focus(); return; }
+      await post({action:'reset',email,password:inp.value}); msg.style.color='var(--green)'; msg.textContent='Password set for '+email+'. Send it to them.';
+    }
+    else if(a==='admin'||a==='user') await post({action:'set',email,role:a});
+    else await post({action:'set',email,status:a});
+    load();
+  }catch(e){ msg.style.color='var(--red)'; msg.textContent=e.message; }
+});
+fetch(API+'?me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(d=>{
+  if(!d){ location.replace('/login?next=/admin'); return; }
+  me=d.user; if(me.role!=='admin'){ document.getElementById('list').innerHTML='<div class="empty">Only admins can manage users.</div>'; return; }
+  load();
+});
+</script>
+</body>
+</html>

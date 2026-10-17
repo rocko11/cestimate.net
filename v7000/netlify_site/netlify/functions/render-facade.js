@@ -1,3 +1,4 @@
+const { requireUser, unauthorized } = require('../lib/auth');
 // netlify/functions/render-facade.js
 // Generates a photorealistic exterior facade rendering from a text prompt
 // built client-side from the takeoff's building metrics.
@@ -6,6 +7,8 @@
 // with a valid OpenAI API key (needs image-generation access).
 
 exports.handler = async (event) => {
+  // Signed-in, approved accounts only (these calls cost money).
+  if (event.httpMethod !== 'OPTIONS' && !(await requireUser(event))) return unauthorized();
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
   }

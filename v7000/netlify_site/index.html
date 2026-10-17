@@ -2,6 +2,32 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<!-- Sign-in gate: the estimator is for approved accounts only. -->
+<style id="auth-gate">.app{visibility:hidden}</style>
+<script>
+(function(){
+  var toLogin=function(){ location.replace('/login?next='+encodeURIComponent(location.pathname+location.search)); };
+  var nf=window.fetch.bind(window);
+  // Any paid call that comes back 401 (session expired / account disabled) sends you to sign in.
+  window.fetch=function(u,o){ return nf(u,o).then(function(r){ var s=String(u&&u.url||u); if(r.status===401&&s.indexOf('/.netlify/functions/')>=0&&s.indexOf('/auth')<0) toLogin(); return r; }); };
+  window.restSignOut=function(){ nf('/.netlify/functions/auth',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:'{"action":"logout"}'}).finally(function(){ location.replace('/login'); }); };
+  nf('/.netlify/functions/auth?me',{credentials:'same-origin'}).then(function(r){
+    if(r.status===401) return toLogin();
+    return r.json().then(function(d){
+      window.REST_USER=d.user||null;
+      var show=function(){
+        var g=document.getElementById('auth-gate'); if(g) g.remove();
+        var top=document.querySelector('.tb-top'); if(!top||!d.user) return;
+        var c=document.createElement('div'); c.className='user-chip';
+        var esc=function(x){ return String(x||'').replace(/[&<>"]/g,function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]; }); };
+        c.innerHTML='<span class="uc-name">'+esc(d.user.name||d.user.email)+'</span>'+(d.user.role==='admin'?'<a href="/admin">Users</a>':'')+'<button type="button" onclick="restSignOut()">Sign out</button>';
+        top.appendChild(c);
+      };
+      if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',show); else show();
+    });
+  }).catch(function(){ var g=document.getElementById('auth-gate'); if(g) g.remove(); });
+})();
+</script>
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-F0WZ7PX9YD"></script>
 <script>
@@ -16,7 +42,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=20260930-elec">
+<link rel="stylesheet" href="styles.css?v=20261017-a">
 </head>
 <body>
 <div class="app">
@@ -445,7 +471,7 @@ window.addEventListener('error',function(e){
   if(el){ el.textContent='Script error: '+(e.message||'unknown')+'  — please report this.'; el.classList.remove('hidden'); }
 });
 </script>
-<script src="app.js?v=20261012-h"></script>
+<script src="app.js?v=20261017-a"></script>
 
 <!-- 3D RENDERING MODAL -->
 <div id="rendering-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,20,38,.93);overflow:auto;">

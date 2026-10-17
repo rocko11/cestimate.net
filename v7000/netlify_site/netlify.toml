@@ -23,3 +23,24 @@
   to = "/.netlify/functions/analyze"
   status = 200
   force = true
+
+# Sign-in and user admin pages
+[[redirects]]
+  from = "/login"
+  to = "/login.html"
+  status = 200
+[[redirects]]
+  from = "/admin"
+  to = "/admin.html"
+  status = 200
+
+[[headers]]
+  for = "/login*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "same-origin"
+[[headers]]
+  for = "/admin*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    Cache-Control = "no-store"

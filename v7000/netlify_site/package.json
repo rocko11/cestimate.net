@@ -1,0 +1,8 @@
+{
+  "name": "r-estimator",
+  "private": true,
+  "description": "R Estimator — NYC plan takeoff (Netlify site + functions)",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}

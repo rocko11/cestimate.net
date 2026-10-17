@@ -1,3 +1,4 @@
+const { requireUser, unauthorized } = require('../lib/auth');
 // netlify/functions/render-elevation.js
 // Photoreal rendering that FOLLOWS the drawn elevation: the elevation sheet's line drawing is the
 // control image for FLUX.1 Canny [pro] (Black Forest Labs, hosted on Replicate). Geometry —
@@ -11,6 +12,8 @@ const API = 'https://api.replicate.com/v1';
 const json = (code, obj) => ({ statusCode: code, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) });
 
 exports.handler = async (event) => {
+  // Signed-in, approved accounts only (these calls cost money).
+  if (event.httpMethod !== 'OPTIONS' && !(await requireUser(event))) return unauthorized();
   const token = process.env.REPLICATE_API_TOKEN;
   if (!token) return json(501, { error: 'REPLICATE_API_TOKEN is not configured on the server' });
   const auth = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
