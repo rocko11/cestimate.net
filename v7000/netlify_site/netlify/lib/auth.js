@@ -81,7 +81,14 @@ async function requireUser(event) {
   const s = await verifySession(event);
   if (!s) return null;
   const u = await getJSON(await store(event), userKey(s.e));
-  if (!u || u.status !== 'active') return null;
+  // Blobs reads are eventually consistent (~up to a minute across regions): a session minted seconds ago
+  // for an account we can't see yet is trusted; a record we *can* see always wins (disable/role changes).
+  if (!u) {
+    const issued = s.x - SESSION_DAYS * 864e5;
+    if (Date.now() - issued < 120000) return { email: s.e, name: s.n, role: s.r, status: 'active', created: null };
+    return null;
+  }
+  if (u.status !== 'active') return null;
   return u;
 }
 const unauthorized = () => ({ statusCode: 401, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Please sign in', login: '/login' }) });
