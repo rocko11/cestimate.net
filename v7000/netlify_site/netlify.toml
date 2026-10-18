@@ -17,6 +17,23 @@
 [functions.render-facade]
   timeout = 26
 
+# Main address is www.restimator.net — the other addresses forward there (one sign-in, one address).
+[[redirects]]
+  from = "https://cestimator.net/*"
+  to = "https://www.restimator.net/:splat"
+  status = 301
+  force = true
+[[redirects]]
+  from = "https://www.cestimator.net/*"
+  to = "https://www.restimator.net/:splat"
+  status = 301
+  force = true
+[[redirects]]
+  from = "https://restimator.net/*"
+  to = "https://www.restimator.net/:splat"
+  status = 301
+  force = true
+
 # Stable alias so the front-end always has a working path to the function.
 [[redirects]]
   from = "/api/analyze"
