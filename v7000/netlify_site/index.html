@@ -277,6 +277,7 @@
     <button class="btn" onclick="openRendering()" style="background:#1a3a6b;color:#fff;border-color:#1a3a6b;font-weight:600" title="Generate 3D rendering from building metrics">🏗 3D Rendering</button>
     <button class="btn" onclick="backToVerify()">← Adjust inputs</button>
     <button class="btn btn-primary" onclick="buildProposal()">📄 Client proposal</button>
+    <button class="btn" onclick="openAppraisal()" title="Cost, sales comparison and income approaches reconciled into one opinion of value">🏛 Appraisal report</button>
     <button class="btn" onclick="openSpecs()">📋 Materials &amp; specs</button>
     <button class="btn" onclick="openElectrical()">⚡ Electrical breakdown</button>
     <button class="btn" onclick="openPlumbing()">🚿 Plumbing breakdown</button>
@@ -429,6 +430,16 @@
   <div id="proposal" class="proposal"></div>
 </div>
 
+<!-- STEP 8: APPRAISAL REPORT (three approaches to value) -->
+<div id="step-8" class="hidden">
+  <div class="actions no-print" style="margin-bottom:1rem">
+    <button class="btn" onclick="backFromAppraisal()">← Back to estimate</button>
+    <button class="btn btn-green" onclick="window.print()">🖨 Print / Save as PDF</button>
+  </div>
+  <div id="apr-form" class="no-print"></div>
+  <div id="appraisal" class="proposal"></div>
+</div>
+
 <div id="step-7" class="hidden">
   <div class="actions no-print" style="margin-bottom:1rem">
     <button class="btn" onclick="backFromPlumbing()">← Back to estimate</button>
@@ -472,7 +483,8 @@ window.addEventListener('error',function(e){
 });
 </script>
 <script src="vault.js?v=20261017-a"></script>
-<script src="app.js?v=20261017-b"></script>
+<script src="app.js?v=20261019-a"></script>
+<script src="appraisal.js?v=20261019-a"></script>
 
 <!-- 3D RENDERING MODAL -->
 <div id="rendering-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,20,38,.93);overflow:auto;">
