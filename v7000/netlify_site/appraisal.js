@@ -16,7 +16,7 @@ function aprDefaults(){
     softPct:20, incentivePct:15, effAge:0, econLife:60, funcPct:0, extPct:0,
     comps:Array.from({length:COMP_COUNT},()=>({addr:'',date:'',price:0,sf:0,units:0,adj:0})),
     rentUnit:0, otherInc:0, vacPct:5, opexPct:35, capRate:6, grm:0,
-    wCost:30, wSales:40, wIncome:30, notes:''
+    wCost:30, wSales:40, wIncome:30, notes:'', condition:null
   };
 }
 function aprLoad(name){
@@ -63,6 +63,7 @@ function renderAppraisalForm(){
         <div class="field"><label>Subject (from takeoff)</label><input value="${esc(m.gfa.toLocaleString())} SF GBA · ${m.units} units · ${m.floors} fl" disabled></div>
       </div>
     </div>
+    ${condSection(d)}
     <div class="card">
       <h3 style="margin:0 0 .6rem">1 · Cost approach</h3>
       <div class="grid4">
@@ -130,7 +131,8 @@ function appraise(d,t){
   const phys=rcn*physPct, func=(rcn-phys)*d.funcPct/100, ext=(rcn-phys-func)*d.extPct/100;
   const depr=phys+func+ext;
   const land=d.landValue>0?d.landValue:d.lotSF*d.landPSF;
-  const cost={hard,soft,incentive,rcn,physPct,phys,func,ext,depr,land,siteImp:d.siteImp,value:land+d.siteImp+rcn-depr};
+  const c=d.condition, cure=condCure(c), condAdj=c?Math.max(-25,Math.min(0,+c.condition_adjustment_pct||0)):0;
+  const cost={hard,soft,incentive,rcn,physPct,phys,func,ext,depr,land,siteImp:d.siteImp,cure,value:land+d.siteImp+rcn-depr-cure};
 
   const comps=d.comps.filter(c=>c.price>0&&(c.sf>0||c.units>0)).map(c=>{
     const adjPrice=c.price*(1+c.adj/100);
@@ -140,19 +142,21 @@ function appraise(d,t){
   const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0;
   const psf=avg(psfs), pu=avg(pus);
   const bySF=psf*m.gfa, byUnit=pu*m.units;
-  const sales={comps,psf,pu,bySF,byUnit,value:bySF>0&&byUnit>0?(bySF+byUnit)/2:(bySF||byUnit),
+  const salesRaw=bySF>0&&byUnit>0?(bySF+byUnit)/2:(bySF||byUnit);
+  const sales={comps,psf,pu,bySF,byUnit,raw:salesRaw,condAdj,value:salesRaw>0?salesRaw*(1+condAdj/100)-cure:0,
     range:psfs.length?[Math.min(...psfs)*m.gfa,Math.max(...psfs)*m.gfa]:null};
 
   const pgi=d.rentUnit*12*m.units+d.otherInc;
   const vac=pgi*d.vacPct/100, egi=pgi-vac, opex=egi*d.opexPct/100, noi=egi-opex;
   const byCap=d.capRate>0?noi/(d.capRate/100):0, byGRM=d.grm>0?(d.rentUnit*12*m.units)*d.grm:0;
-  const income={pgi,vac,egi,opex,noi,byCap,byGRM,value:byCap||byGRM};
+  const incRaw=byCap||byGRM;
+  const income={pgi,vac,egi,opex,noi,byCap,byGRM,raw:incRaw,value:incRaw>0?incRaw-cure:0};
 
   const w=[[cost.value,d.wCost],[sales.value,d.wSales],[income.value,d.wIncome]].filter(x=>x[0]>0&&x[1]>0);
   const wsum=w.reduce((a,x)=>a+x[1],0);
   const final=wsum>0?w.reduce((a,x)=>a+x[0]*x[1],0)/wsum:0;
   const rounded=Math.round(final/10000)*10000;
-  return {cost,sales,income,final,rounded,wsum};
+  return {cost,sales,income,final,rounded,wsum,cure,condAdj};
 }
 
 /* ---------- report ---------- */
@@ -185,6 +189,8 @@ function renderAppraisal(){
       <tr class="subtot"><td>Reconciled value (rounded to $10,000)</td><td class="num"><b>${r.rounded>0?fmtM(r.rounded):'—'}</b></td><td class="num">${r.rounded>0?fmtM(r.rounded/Math.max(m.gfa,1)):'—'}</td><td class="num">${r.wsum?pct(r.wsum):'—'}</td></tr></tbody>
     </table>
 
+    ${condReport(d.condition,m)}
+
     <h3>1 · Cost approach</h3>
     <p style="font-size:13px">Replacement cost new of the improvements is taken from this estimate (${t.marginPct>0?'sell price incl. margin':'total with GC, OH&amp;P and contingency'}), plus soft costs and entrepreneurial incentive; accrued depreciation is deducted and land value added.</p>
     <table class="prop-table"><tbody>
@@ -197,6 +203,7 @@ function renderAppraisal(){
       ${row('Less external obsolescence @ '+pct(d.extPct),'('+fmtM(r.cost.ext)+')')}
       ${row('Depreciated value of improvements',fmtM(r.cost.rcn-r.cost.depr))}
       ${row('Plus site improvements',fmtM(r.cost.siteImp))}
+      ${r.cure>0?row('Less cost to cure deferred maintenance (photo inspection)','('+fmtM(r.cure)+')'):''}
       ${row('Plus land value'+(d.landValue>0?'':d.lotSF&&d.landPSF?' ('+d.lotSF.toLocaleString()+' SF × '+fmtM(d.landPSF)+'/SF)':''),fmtM(r.cost.land))}
       ${row('<b>Indicated value — cost approach</b>','<b>'+fmtM(r.cost.value)+'</b>','subtot')}
     </tbody></table>
@@ -211,6 +218,8 @@ function renderAppraisal(){
       ${row('Average adjusted $/SF × '+m.gfa.toLocaleString()+' SF',fmtM(r.sales.psf)+'/SF → '+fmtM(r.sales.bySF))}
       ${m.units&&r.sales.pu?row('Average adjusted $/unit × '+m.units+' units',fmtM(r.sales.pu)+'/unit → '+fmtM(r.sales.byUnit)):''}
       ${r.sales.range?row('Indicated range (adjusted $/SF)',fmtM(r.sales.range[0])+' – '+fmtM(r.sales.range[1])):''}
+      ${r.condAdj<0?row('Condition adjustment vs. renovated comparables ('+r.condAdj+'%)','('+fmtM(r.sales.raw*-r.condAdj/100)+')'):''}
+      ${r.cure>0?row('Less cost to cure (as-is)','('+fmtM(r.cure)+')'):''}
       ${row('<b>Indicated value — sales comparison</b>','<b>'+fmtM(r.sales.value)+'</b>','subtot')}
     </tbody></table>`:''}
 
@@ -223,6 +232,7 @@ function renderAppraisal(){
       ${row('<b>Net operating income</b>','<b>'+fmtM(r.income.noi)+'</b>')}
       ${row('Direct capitalization: NOI ÷ '+pct(d.capRate),fmtM(r.income.byCap))}
       ${d.grm>0?row('GRM cross-check: gross rent × '+d.grm,fmtM(r.income.byGRM)):''}
+      ${r.cure>0?row('Less cost to cure (as-is)','('+fmtM(r.cure)+')'):''}
       ${row('<b>Indicated value — income approach</b>','<b>'+fmtM(r.income.value)+'</b>','subtot')}
     </tbody></table>
     ${r.income.value<=0?'<div style="font-size:12px;color:#B45309;margin-top:4px">⚠ Enter rent and a cap rate to develop the income approach.</div>':''}
@@ -235,6 +245,7 @@ function renderAppraisal(){
     <ul class="prop-list">
       <li>Replacement cost is derived from the R Estimator takeoff of the plans provided and reflects ${esc(wt).toLowerCase()} hard costs at the stated location and labor rates; it is not a bid.</li>
       <li>Land value, comparable sales, rents, expenses and capitalization rates are user-supplied and have not been independently verified.</li>
+      ${d.condition?'<li>Condition ratings and cost-to-cure figures come from an AI review of client-supplied photos and video, not a physical inspection; concealed defects, mechanical systems and code compliance were not verified.</li>':''}
       <li>Where the premise is value upon completion, the value assumes the improvements are built as drawn, lawfully occupied and stabilized.</li>
       <li>This report is a valuation analysis for the client's internal use and is not a USPAP-compliant appraisal unless prepared and signed by a licensed appraiser.</li>
     </ul>
@@ -255,4 +266,113 @@ function aprNarrative(r,d,m){
   s+='.';
   if(r.cost.value>0&&r.final>0&&r.cost.value>r.final*1.1) s+=' The cost approach exceeds the market indications: the project as designed may cost more to build than it would sell or capitalize for.';
   return s;
+}
+
+/* ============ PROPERTY CONDITION — photo & video analysis ============
+   The user uploads interior / exterior photos (and optionally video; frames
+   are sampled in the browser). Claude vision rates each area, estimates
+   effective age, deferred maintenance and cost to cure. Results feed the
+   cost approach (effective age, functional obsolescence, cost to cure) and
+   an as-is deduction on the market approaches. Photos stay in the browser;
+   only the findings are saved. */
+
+let condFiles=[];   // {name,label,src(dataURL 800px),kind:'photo'|'frame'}
+
+function condSection(d){
+  const c=d.condition;
+  const thumbs=condFiles.map((f,i)=>`<div style="width:110px;font-size:11px">
+      <img src="${f.src}" style="width:110px;height:82px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">
+      <input placeholder="${f.kind==='frame'?'video frame':'label (Apt 2B, roof…)'}" value="${esc(f.label||'')}" oninput="condFiles[${i}].label=this.value" style="width:100%;font-size:11px;padding:3px 5px;margin-top:3px">
+      <a href="#" onclick="condFiles.splice(${i},1);renderCondSection();return false" style="color:var(--muted)">remove</a></div>`).join('');
+  return `<div class="card" id="cond-card">
+      <h3 style="margin:0 0 .3rem">Property condition — photos &amp; video</h3>
+      <p class="hint" style="font-size:12px;margin:0 0 .6rem">Upload interior and exterior photos (optional: a walkthrough video, 8 frames are sampled). The AI rates each area, estimates effective age and deferred maintenance, and feeds the valuation below. Label photos with the unit or area for a per-unit table.</p>
+      <div class="actions" style="margin:0 0 .6rem">
+        <label class="btn" style="cursor:pointer">📷 Add photos / video<input type="file" accept="image/*,video/*" multiple style="display:none" onchange="condAddFiles(this.files)"></label>
+        <button class="btn btn-primary" onclick="analyzeCondition()" ${condFiles.length?'':'disabled'} id="cond-run">🔍 Analyze condition (${condFiles.length} image${condFiles.length===1?'':'s'})</button>
+        ${c?'<button class="btn" onclick="apr.condition=null;aprSave(aprProjName(),apr);renderCondSection();renderAppraisal()">✕ Clear findings</button>':''}
+        <span id="cond-status" style="font-size:12px;color:var(--muted);align-self:center"></span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">${thumbs}</div>
+      ${c?`<div style="margin-top:.7rem;font-size:12.5px"><b>Overall ${c.overall_rating}/5 (${esc(c.overall_label||'')})</b> · effective age ${c.effective_age_years} yrs · cost to cure ${fmtM(condCure(c))} — applied to the valuation below.</div>`:''}
+    </div>`;
+}
+function renderCondSection(){ const el=document.getElementById('cond-card'); if(el) el.outerHTML=condSection(apr); }
+function condCure(c){ return (c&&c.deferred_maintenance||[]).reduce((a,x)=>a+((+x.cost_low||0)+(+x.cost_high||0))/2,0); }
+
+async function condAddFiles(files){
+  for(const f of Array.from(files||[])){
+    if(f.type.startsWith('video/')) { for(const fr of await sampleVideo(f,8)) condFiles.push({name:f.name,label:'',src:fr,kind:'frame'}); }
+    else if(f.type.startsWith('image/')){ const url=URL.createObjectURL(f); condFiles.push({name:f.name,label:'',src:await shrinkImage(url,800),kind:'photo'}); URL.revokeObjectURL(url); }
+  }
+  renderCondSection();
+}
+function sampleVideo(file,n){
+  return new Promise(res=>{
+    const v=document.createElement('video'); v.muted=true; v.playsInline=true; v.preload='auto'; v.src=URL.createObjectURL(file);
+    const out=[]; let i=0;
+    v.onerror=()=>res(out);
+    v.onloadedmetadata=()=>{ const dur=v.duration||0; if(!dur) return res(out);
+      const next=()=>{ if(i>=n) { URL.revokeObjectURL(v.src); return res(out); } v.currentTime=Math.min(dur-0.1,(i+0.5)*dur/n); };
+      v.onseeked=()=>{ const sc=Math.min(1,800/Math.max(v.videoWidth,v.videoHeight)); const c=document.createElement('canvas');
+        c.width=Math.round(v.videoWidth*sc); c.height=Math.round(v.videoHeight*sc); c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+        out.push(c.toDataURL('image/jpeg',0.8)); i++; next(); };
+      next(); };
+  });
+}
+
+const COND_PROMPT=`You are a NYC property-condition inspector supporting an appraisal. Rate what the photos show. Respond with ONLY compact JSON, no prose:
+{"items":[{"photo":1,"label":"<label given or what it shows>","area":"interior|exterior","element":"kitchen|bathroom|living/bedroom|hallway/common|facade|roof|windows|mechanical|structure|site|other","rating":1-5,"findings":"<one line>"}],
+ "overall_rating":1-5,"overall_label":"<C1 new … C5 poor style word>","effective_age_years":<int>,"remaining_economic_life_years":<int>,
+ "functional_obsolescence_pct":<0-15>,"condition_adjustment_pct":<-25..0, discount vs a fully renovated comparable>,
+ "deferred_maintenance":[{"item":"<repair>","cost_low":<USD>,"cost_high":<USD>}],"summary":"<3-4 sentences for the report>"}
+Rating scale: 5 = new/renovated, 4 = good, 3 = average/dated but sound, 2 = fair/deferred maintenance, 1 = poor/needs gut. Cost to cure at NYC contractor prices. If a photo is unclear, rate it 3 and say so.`;
+
+async function analyzeCondition(){
+  if(!condFiles.length) return;
+  const st=document.getElementById('cond-status'), btn=document.getElementById('cond-run'); btn.disabled=true;
+  try{
+    const batches=[]; for(let i=0;i<condFiles.length;i+=5) batches.push(condFiles.slice(i,i+5));
+    const results=[];
+    for(let b=0;b<batches.length;b++){
+      st.textContent=`Analyzing photos ${b*5+1}–${b*5+batches[b].length} of ${condFiles.length}…`;
+      const parts=batches[b].map(f=>({media_type:'image/jpeg',data:f.src.split(',')[1]}));
+      const labels=batches[b].map((f,i)=>`Photo ${b*5+i+1}: ${f.label||(f.kind==='frame'?'video frame':'unlabeled')}`).join('\n');
+      const resp=await postProxy({parts,prompt:labels+'\n\n'+COND_PROMPT.replace('"photo":1','"photo":'+(b*5+1)+' (use the photo numbers above)')});
+      const dta=await resp.json(); if(!resp.ok) throw new Error(dta.error||'analysis failed');
+      results.push(JSON.parse(String(dta.text||'').replace(/```json|```/g,'').trim()));
+    }
+    let c=results[0];
+    if(results.length>1){
+      st.textContent='Consolidating findings…';
+      const resp=await postProxy({prompt:'Merge these partial condition analyses of ONE property into a single JSON of the same shape (keep every item, de-duplicate deferred maintenance, recompute the overall fields from all photos). ONLY JSON.\n'+JSON.stringify(results)});
+      const dta=await resp.json(); if(resp.ok){ try{ c=JSON.parse(String(dta.text||'').replace(/```json|```/g,'').trim()); }catch(e){} }
+      if(c===results[0]){ c=Object.assign({},results[0]); c.items=results.flatMap(r=>r.items||[]); c.deferred_maintenance=results.flatMap(r=>r.deferred_maintenance||[]); }
+    }
+    c.analyzed=new Date().toISOString(); c.photos=condFiles.length;
+    apr.condition=c;
+    // Feed the cost approach unless the user already typed something non-default.
+    if(!apr.effAge) apr.effAge=+c.effective_age_years||0;
+    if(!apr.funcPct) apr.funcPct=+c.functional_obsolescence_pct||0;
+    if(!apr.econLife||apr.econLife===60) apr.econLife=(+c.effective_age_years||0)+(+c.remaining_economic_life_years||60);
+    aprSave(aprProjName(),apr);
+    renderAppraisalForm(); renderAppraisal();
+    track('condition_analyzed',{photos:condFiles.length});
+  }catch(e){ alert('Condition analysis failed: '+(e.message||e)); }
+  finally{ const s=document.getElementById('cond-status'); if(s) s.textContent=''; const b=document.getElementById('cond-run'); if(b) b.disabled=false; }
+}
+
+function condReport(c,m){
+  if(!c) return '';
+  const byLabel={};
+  (c.items||[]).forEach(it=>{ const k=it.label||it.element||'—'; (byLabel[k]=byLabel[k]||[]).push(it); });
+  const rows=Object.entries(byLabel).map(([k,its])=>{ const avg=its.reduce((a,x)=>a+(+x.rating||3),0)/its.length;
+    return `<tr><td>${esc(k)}</td><td>${esc([...new Set(its.map(x=>x.area))].join(', '))}</td><td class="num">${avg.toFixed(1)} / 5</td><td>${esc(its.map(x=>x.findings).filter(Boolean).join(' · '))}</td></tr>`; }).join('');
+  const dm=(c.deferred_maintenance||[]).map(x=>`<tr><td>${esc(x.item)}</td><td class="num">${fmtM(+x.cost_low||0)} – ${fmtM(+x.cost_high||0)}</td></tr>`).join('');
+  return `<h3>Property condition (photo &amp; video inspection)</h3>
+    <p style="font-size:13px"><b>Overall condition ${c.overall_rating}/5 — ${esc(c.overall_label||'')}.</b> ${esc(c.summary||'')} <span style="color:var(--muted)">(${c.photos} images analyzed ${c.analyzed?new Date(c.analyzed).toLocaleDateString('en-US'):''})</span></p>
+    <table class="prop-table"><thead><tr><th>Unit / area</th><th>Int/Ext</th><th class="num">Rating</th><th>Findings</th></tr></thead><tbody>${rows}</tbody></table>
+    <table class="prop-table" style="margin-top:8px"><thead><tr><th>Deferred maintenance / cost to cure</th><th class="num">NYC cost</th></tr></thead><tbody>${dm||'<tr><td colspan="2" style="color:var(--muted)">None noted</td></tr>'}
+      <tr class="subtot"><td>Total cost to cure (midpoint)</td><td class="num"><b>${fmtM(condCure(c))}</b></td></tr></tbody></table>
+    <p style="font-size:12.5px;margin-top:6px">Effective age ${c.effective_age_years} yrs · remaining economic life ${c.remaining_economic_life_years} yrs · functional obsolescence ${c.functional_obsolescence_pct}% · condition adjustment vs. renovated comparables ${c.condition_adjustment_pct}%. Cost to cure is deducted from each approach to arrive at as-is value.</p>`;
 }
