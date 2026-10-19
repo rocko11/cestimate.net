@@ -11,12 +11,12 @@ const COMP_COUNT=6;
 
 function aprDefaults(){
   return {
-    purpose:'Prospective market value upon completion', interest:'Fee simple', date:new Date().toISOString().slice(0,10),
+    purpose:'Prospective market value upon completion', interest:'Fee simple', date:new Date().toISOString().slice(0,10), address:'',
     lotSF:0, landPSF:0, landValue:0, siteImp:0,
     softPct:20, incentivePct:15, effAge:0, econLife:60, funcPct:0, extPct:0,
     comps:Array.from({length:COMP_COUNT},()=>({addr:'',date:'',price:0,sf:0,units:0,adj:0})),
     rentUnit:0, otherInc:0, vacPct:5, opexPct:35, capRate:6, grm:0,
-    wCost:30, wSales:40, wIncome:30, notes:'', condition:null
+    wCost:30, wSales:40, wIncome:30, notes:'', condition:null, market:null, marketNote:''
   };
 }
 function aprLoad(name){
@@ -61,6 +61,9 @@ function renderAppraisalForm(){
         ${ai('interest','Property interest',d.interest,{type:'text'})}
         ${ai('date','Effective date',d.date,{type:'date'})}
         <div class="field"><label>Subject (from takeoff)</label><input value="${esc(m.gfa.toLocaleString())} SF GBA · ${m.units} units · ${m.floors} fl" disabled></div>
+        ${ai('address','Property address',d.address||aprGuessAddress(),{type:'text',hint:'street + borough'})}
+        <div class="field"><label>&nbsp;</label><button class="btn btn-primary" id="comps-btn" onclick="findComps()">🔎 Find comps &amp; land value</button></div>
+        <div class="field" style="grid-column:span 2"><label>&nbsp;</label><span id="comps-status" style="font-size:12px;color:var(--muted)">${d.market?'Market data pulled '+new Date(d.market.fetched).toLocaleString('en-US')+' · '+d.market.comps.length+' building sales, '+d.market.land.comps.length+' land sales within '+d.market.months+' months':'Pulls NYC DOF recorded sales and PLUTO lot data for the address, fills the comps below and sets land value.'}</span></div>
       </div>
     </div>
     ${condSection(d)}
@@ -85,7 +88,7 @@ function renderAppraisalForm(){
         <thead><tr><th>#</th><th>Comparable sale</th><th>Date</th><th>Sale price</th><th>GBA SF</th><th>Units</th><th>Net adj. %</th></tr></thead>
         <tbody>${comps}</tbody>
       </table>
-      <div class="hint" style="font-size:11px;color:var(--muted);margin-top:4px">Net adjustment: + when the comp is inferior to the subject (older, worse location, earlier sale), − when superior. Leave rows blank to skip.</div>
+      <div class="hint" style="font-size:11px;color:var(--muted);margin-top:4px">${d.market?'Filled from NYC DOF recorded sales (adjustments suggested for market time +3%/yr and size; edit as needed). ':''}Net adjustment: + when the comp is inferior to the subject (older, worse location, earlier sale), − when superior. Leave rows blank to skip.</div>
     </div>
     <div class="card">
       <h3 style="margin:0 0 .6rem">3 · Income capitalization approach</h3>
@@ -112,7 +115,7 @@ function renderAppraisalForm(){
 function aprChange(){
   const g=id=>{ const e=document.getElementById('apr-'+id); return e?e.value:''; };
   const n=id=>+g(id)||0;
-  ['purpose','interest','date','notes'].forEach(k=>apr[k]=g(k));
+  ['purpose','interest','date','notes','address'].forEach(k=>apr[k]=g(k));
   ['lotSF','landPSF','landValue','siteImp','softPct','incentivePct','effAge','econLife','funcPct','extPct',
    'rentUnit','otherInc','vacPct','opexPct','capRate','grm','wCost','wSales','wIncome'].forEach(k=>apr[k]=n(k));
   apr.comps=apr.comps.map((c,i)=>({addr:g('c'+i+'-addr'),date:g('c'+i+'-date'),price:n('c'+i+'-price'),sf:n('c'+i+'-sf'),units:n('c'+i+'-units'),adj:n('c'+i+'-adj')}));
@@ -189,6 +192,7 @@ function renderAppraisal(){
       <tr class="subtot"><td>Reconciled value (rounded to $10,000)</td><td class="num"><b>${r.rounded>0?fmtM(r.rounded):'—'}</b></td><td class="num">${r.rounded>0?fmtM(r.rounded/Math.max(m.gfa,1)):'—'}</td><td class="num">${r.wsum?pct(r.wsum):'—'}</td></tr></tbody>
     </table>
 
+    ${marketReport(d,r)}
     ${condReport(d.condition,m)}
 
     <h3>1 · Cost approach</h3>
@@ -375,4 +379,63 @@ function condReport(c,m){
     <table class="prop-table" style="margin-top:8px"><thead><tr><th>Deferred maintenance / cost to cure</th><th class="num">NYC cost</th></tr></thead><tbody>${dm||'<tr><td colspan="2" style="color:var(--muted)">None noted</td></tr>'}
       <tr class="subtot"><td>Total cost to cure (midpoint)</td><td class="num"><b>${fmtM(condCure(c))}</b></td></tr></tbody></table>
     <p style="font-size:12.5px;margin-top:6px">Effective age ${c.effective_age_years} yrs · remaining economic life ${c.remaining_economic_life_years} yrs · functional obsolescence ${c.functional_obsolescence_pct}% · condition adjustment vs. renovated comparables ${c.condition_adjustment_pct}%. Cost to cure is deducted from each approach to arrive at as-is value.</p>`;
+}
+
+
+/* ============ MARKET DATA — comps & land value from the address ============
+   Netlify function comps.js queries NYC Open Data (PLUTO + DOF rolling sales):
+   building sales near the subject (sized/aged like it) fill the sales grid,
+   vacant-land sales give $/buildable SF → land value for the cost approach. */
+function aprGuessAddress(){
+  try{ const r=document.getElementById('render-addr'); if(r&&r.value.trim()) return r.value.trim(); }catch(e){}
+  try{ const n=(getV('m-name')||'').trim(); if(/^\d+\s+\w/.test(n)) return n; }catch(e){}
+  return '';
+}
+async function findComps(){
+  const addr=(document.getElementById('apr-address')||{}).value||'';
+  if(!addr.trim()){ alert('Enter the property address first.'); return; }
+  const st=document.getElementById('comps-status'), btn=document.getElementById('comps-btn'); btn.disabled=true;
+  const m=lastTotals.m;
+  try{
+    st.textContent='Looking up the lot and nearby recorded sales…';
+    const r=await fetch('/.netlify/functions/comps',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:addr,gfa:m.gfa,units:m.units,months:36,limit:12})});
+    const d=await r.json(); if(!r.ok) throw new Error(d.error||('HTTP '+r.status));
+    d.fetched=new Date().toISOString();
+    apr.address=addr; apr.market=d;
+    // Fill the sales grid with the best six; keep the rest in the report.
+    const top=d.comps.slice(0,COMP_COUNT);
+    apr.comps=apr.comps.map((c,i)=>top[i]?{addr:top[i].address,date:top[i].date,price:top[i].price,sf:top[i].gsf,units:top[i].units,adj:top[i].suggestedAdj}:{addr:'',date:'',price:0,sf:0,units:0,adj:0});
+    // Land: lot from PLUTO, value from land comps.
+    if(d.subject.lotSF>0) apr.lotSF=d.subject.lotSF;
+    if(d.land&&d.land.value>0){ apr.landValue=d.land.value; apr.landPSF=0; }
+    aprSave(aprProjName(),apr);
+    renderAppraisalForm(); renderAppraisal();
+    // Short market commentary from the model (clearly labeled; the numbers above are the record data).
+    try{
+      const ds=document.getElementById('comps-status'); if(ds) ds.textContent='Writing market commentary…';
+      const facts={subject:d.subject,buildingSales:d.comps.slice(0,8).map(c=>({address:c.address,date:c.date,price:c.price,gsf:c.gsf,units:c.units,psf:c.psf,distanceMi:c.distanceMi})),landSales:d.land.comps.slice(0,6),landValue:d.land};
+      const resp=await postProxy({prompt:'You are a NYC appraiser. Using ONLY these recorded facts, write 4-5 sentences of market commentary for an appraisal report: describe the submarket, the range and central tendency of building sale prices per SF and per unit, the land sale evidence per buildable SF, and how reliable the land value indication is given the number and proximity of land comps. Plain prose, no headings, no bullet points, no made-up numbers.\n'+JSON.stringify(facts)});
+      const t=await resp.json(); if(resp.ok&&t.text){ apr.marketNote=String(t.text).trim(); aprSave(aprProjName(),apr); renderAppraisalForm(); renderAppraisal(); }
+    }catch(e){ console.warn('market note skipped',e); }
+    track('comps_found',{comps:d.comps.length,land:d.land.comps.length});
+  }catch(e){ alert('Comp search failed: '+(e.message||e)); const s2=document.getElementById('comps-status'); if(s2) s2.textContent=''; }
+  finally{ const b=document.getElementById('comps-btn'); if(b) b.disabled=false; }
+}
+
+function marketReport(d,r){
+  const mk=d.market; if(!mk) return '';
+  const s=mk.subject, L=mk.land;
+  const landRows=(L.comps||[]).map((c,i)=>`<tr><td>${i+1}</td><td>${esc(c.address)}</td><td>${esc(c.date)}</td><td class="num">${fmtM(c.price)}</td><td class="num">${c.lotSF.toLocaleString()}</td><td>${esc(c.zoning||'—')}${c.far?' · FAR '+c.far:''}</td><td class="num">${c.distanceMi} mi</td><td class="num">${c.timeAdj>0?'+':''}${c.timeAdj}%</td><td class="num">${fmtM(c.psfLot)}</td><td class="num">${c.psfBuildable?fmtM(c.psfBuildable):'—'}</td></tr>`).join('');
+  return `<h3>Market data &amp; land value (NYC DOF recorded sales · PLUTO)</h3>
+    <table class="prop-table"><tbody>
+      <tr><td>Subject lot</td><td class="num">${esc(s.address)} · BBL ${esc(s.bbl||'')} · ${s.lotSF.toLocaleString()} SF lot · zoning ${esc(s.zoning||'—')} · max FAR ${s.maxFar||'—'} · ${s.buildableSF?s.buildableSF.toLocaleString()+' buildable SF':'buildable SF n/a'}${s.yearBuilt?' · existing bldg '+s.yearBuilt+' ('+s.bldgSF.toLocaleString()+' SF)':''}</td></tr>
+      <tr><td>Search</td><td class="num">${mk.candidates.buildings} building sales and ${mk.candidates.land} land sales within ${mk.months} months in zip ${(mk.zips||[]).join(', ')}; the ${mk.comps.length} most similar buildings (distance, size, unit count, recency) are used as comparables</td></tr>
+    </tbody></table>
+    ${landRows?`<table class="prop-table" style="margin-top:8px"><thead><tr><th>#</th><th>Land sale</th><th>Date</th><th class="num">Price</th><th class="num">Lot SF</th><th>Zoning</th><th class="num">Dist.</th><th class="num">Time adj.</th><th class="num">$/lot SF</th><th class="num">$/bldg SF</th></tr></thead><tbody>${landRows}</tbody></table>
+    <table class="prop-table" style="margin-top:8px"><tbody>
+      <tr><td>Median $/buildable SF × ${s.buildableSF.toLocaleString()} buildable SF</td><td class="num">${L.medianPsfBuildable?fmtM(L.medianPsfBuildable)+'/SF → '+fmtM(L.byBuildable):'—'}</td></tr>
+      <tr><td>Median $/lot SF × ${s.lotSF.toLocaleString()} SF lot</td><td class="num">${fmtM(L.medianPsfLot)}/SF → ${fmtM(L.byLot)}</td></tr>
+      <tr class="subtot"><td><b>Indicated land value</b> <span style="font-weight:400;color:var(--muted)">(${esc(L.method)})</span></td><td class="num"><b>${fmtM(L.value)}</b></td></tr>
+    </tbody></table>`:'<p style="font-size:12.5px;color:#B45309">⚠ No vacant-land sales recorded nearby in the period — land value must be entered manually.</p>'}
+    ${d.marketNote?`<p style="font-size:13px;margin-top:8px">${esc(d.marketNote)}</p>`:''}`;
 }
