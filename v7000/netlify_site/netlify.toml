@@ -17,6 +17,18 @@
 [functions.render-facade]
   timeout = 26
 
+# Server code (functions, auth library) is not public.
+[[redirects]]
+  from = "/netlify/*"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/package.json"
+  to = "/404.html"
+  status = 404
+  force = true
+
 # Main address is www.restimator.net — the other addresses forward there (one sign-in, one address).
 [[redirects]]
   from = "https://cestimator.net/*"
