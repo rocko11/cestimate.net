@@ -136,10 +136,13 @@
       <div class="grid3">
         <div class="field ai"><label>Project name / address</label><input id="m-name"></div>
         <div class="field ai"><label>DOB Job #</label><input id="m-job"></div>
-        <div class="field"><label>Borough</label>
+        <div class="field"><label>Location (borough / NJ county)</label>
           <select id="m-borough" onchange="recalc()">
+            <optgroup label="New York City">
             <option value="1.0">Manhattan</option><option value="0.92">Brooklyn</option>
             <option value="0.90">Queens</option><option value="0.86">Bronx</option><option value="0.84">Staten Island</option>
+            </optgroup>
+            <optgroup label="New Jersey"><option value="0.83" data-state="NJ">Hudson County, NJ</option><option value="0.825" data-state="NJ">Essex County, NJ</option><option value="0.82" data-state="NJ">Union County, NJ</option><option value="0.815" data-state="NJ">Bergen County, NJ</option><option value="0.81" data-state="NJ">Passaic County, NJ</option><option value="0.805" data-state="NJ">Middlesex County, NJ</option><option value="0.80" data-state="NJ">Morris County, NJ</option><option value="0.795" data-state="NJ">Somerset County, NJ</option><option value="0.79" data-state="NJ">Monmouth County, NJ</option><option value="0.785" data-state="NJ">Mercer County, NJ</option><option value="0.78" data-state="NJ">Ocean County, NJ</option><option value="0.775" data-state="NJ">Camden County, NJ</option><option value="0.772" data-state="NJ">Burlington County, NJ</option><option value="0.765" data-state="NJ">Other NJ county County, NJ</option></optgroup>
           </select>
         </div>
       </div>
@@ -483,8 +486,8 @@ window.addEventListener('error',function(e){
 });
 </script>
 <script src="vault.js?v=20261017-a"></script>
-<script src="app.js?v=20261019-a"></script>
-<script src="appraisal.js?v=20261019-c"></script>
+<script src="app.js?v=20261020-nj"></script>
+<script src="appraisal.js?v=20261020-nj"></script>
 
 <!-- 3D RENDERING MODAL -->
 <div id="rendering-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,20,38,.93);overflow:auto;">

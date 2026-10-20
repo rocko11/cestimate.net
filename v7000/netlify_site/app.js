@@ -637,7 +637,8 @@ UNIT COUNT — HIGHEST PRIORITY:
 SCHEDULES: read every row, no skipping. Windows: sum QTY all rows of a WINDOW SCHEDULE table only (never count window symbols on a plan; null if no window schedule). Doors: 3 separate counts (entry/stair/interior) — ONLY from a DOOR SCHEDULE table; never count door symbols on a plan for these fields (leave null if there is no door schedule). HVAC: CU outdoor + AH indoor separate, ONLY from an HVAC/mechanical equipment schedule (null if none). Unreadable table → -1. Not present → null.
 
 Return ONE JSON object, no markdown:
-{"projectName":string|null,"dobJob":string|null,"borough":"Manhattan"|"Brooklyn"|"Queens"|"Bronx"|"Staten Island"|null,"address":string|null,"gfa":number|null,"nsf":number|null,"footprint":number|null,"floors":number|null,"cellar":0|1|null,"units":number|null,"f2f":number|null,"perimeter":number|null,"worktype":"new"|"conversion"|"gut"|"partial"|null,"constructionType":"I-A"|"I-B"|"II-A"|"II-B"|"III-A"|"III-B"|"V"|null,"occupancy":"R-2"|"R-3"|"B"|"A"|"M"|"I"|null,"court":0|1|null,"windows":number|null,"doorsEntry":number|null,"doorsStair":number|null,"doorsInterior":number|null,"hvacCondensers":number|null,"hvacIndoor":number|null,"exhaustFans":number|null,"elevators":number|null,"floorAreas":[{"name":string,"gross":number|null,"net":number|null}]|null,"sheetNumber":string|null,"sheetKind":"floor_plan"|"other","floorLabel":string|null,"typicalFloors":number|null,"excavationDepth":number|null,"soeLF":number|null,"underpinningLF":number|null,"pileCount":number|null}
+{"projectName":string|null,"dobJob":string|null,"borough":"Manhattan"|"Brooklyn"|"Queens"|"Bronx"|"Staten Island"|"<County> County, NJ"|null,"address":string|null,"gfa":number|null,"nsf":number|null,"footprint":number|null,"floors":number|null,"cellar":0|1|null,"units":number|null,"f2f":number|null,"perimeter":number|null,"worktype":"new"|"conversion"|"gut"|"partial"|null,"constructionType":"I-A"|"I-B"|"II-A"|"II-B"|"III-A"|"III-B"|"V"|null,"occupancy":"R-2"|"R-3"|"B"|"A"|"M"|"I"|null,"court":0|1|null,"windows":number|null,"doorsEntry":number|null,"doorsStair":number|null,"doorsInterior":number|null,"hvacCondensers":number|null,"hvacIndoor":number|null,"exhaustFans":number|null,"elevators":number|null,"floorAreas":[{"name":string,"gross":number|null,"net":number|null}]|null,"sheetNumber":string|null,"sheetKind":"floor_plan"|"other","floorLabel":string|null,"typicalFloors":number|null,"excavationDepth":number|null,"soeLF":number|null,"underpinningLF":number|null,"pileCount":number|null}
+LOCATION: borough is the NYC borough; for a New Jersey project (NJ address, NJ UCC / construction permit, NJ municipality in the title block) give the county as e.g. "Hudson County, NJ" (Jersey City, Hoboken, Bayonne, Union City, Weehawken, West New York, North Bergen, Secaucus, Kearny, Harrison are Hudson; Newark, Montclair, the Oranges, Bloomfield are Essex). dobJob = the DOB job number, or for NJ the construction permit / application number.
 SHEET: sheetNumber = drawing number in the title block (e.g. "A-101.00"). sheetKind="floor_plan" ONLY for a full architectural PROPOSED/NEW floor plan of one building level (cellar, 1st, 2nd, typical, penthouse). Everything else is "other": reflected ceiling plans, demolition/existing plans, enlarged or partial plans, roof/bulkhead plans, site/zoning, sections, elevations, details, schedules, structural and MEP sheets. floorLabel = the level shown (e.g. "1ST FLOOR"). typicalFloors = how many levels this one plan represents (e.g. "TYPICAL 2ND-4TH FLOOR PLAN" → 3; otherwise 1).
 FOUNDATION SUPPORT (structural FO-/S-/SOE- sheets, sections, foundation & pile plans, notes): excavationDepth = feet from grade to the bottom of excavation / cellar slab (e.g. cellar slab at -11'-6" → 11.5). soeLF = total length in LF of sheeting/shoring/soldier piles/SOE shown. underpinningLF = total LF of adjacent building walls to be underpinned. pileCount = number of piles on the pile/foundation plan (count every pile symbol or read the pile schedule). null if the sheet doesn't show it.
 JSON only. No extra text.`;
@@ -851,12 +852,15 @@ function parseJSON(text){
 
 const CTYPE_MAP={'I-A':1.15,'I-B':1.10,'II-A':1.0,'II-B':0.96,'III-A':0.93,'III-B':0.90,'V':0.85};
 const OCC_MAP={'R-2':1.0,'R-3':0.88,'B':1.0,'A':1.25,'M':0.92,'I':1.42};
-const BORO_MAP={'Manhattan':'1.0','Brooklyn':'0.92','Queens':'0.90','Bronx':'0.86','Staten Island':'0.84'};
+const BORO_MAP={'Manhattan':'1.0','Brooklyn':'0.92','Queens':'0.90','Bronx':'0.86','Staten Island':'0.84','Hudson County, NJ':'0.83','Essex County, NJ':'0.825','Union County, NJ':'0.82','Bergen County, NJ':'0.815','Passaic County, NJ':'0.81','Middlesex County, NJ':'0.805','Morris County, NJ':'0.80','Somerset County, NJ':'0.795','Monmouth County, NJ':'0.79','Mercer County, NJ':'0.785','Ocean County, NJ':'0.78','Camden County, NJ':'0.775','Burlington County, NJ':'0.772','Other County, NJ':'0.765'};
+// Location of the project as shown in the selector: {name:'Brooklyn'|'Hudson County, NJ', state:'NY'|'NJ'}
+function projectLocation(){ const sel=document.getElementById('m-borough'); const o=sel&&sel.selectedOptions&&sel.selectedOptions[0]; return {name:o?o.textContent.trim():'Brooklyn', state:o&&o.dataset.state==='NJ'?'NJ':'NY'}; }
 
 function fillMetrics(p){
   const nb=v=>(typeof v==='number'&&!Number.isNaN(v))?v:''; // number, else blank
   setV('m-name',p.projectName||''); setV('m-job',p.dobJob||''); if(p.address) window._planAddress=String(p.address);
   if(p.borough&&BORO_MAP[p.borough]) setSel('m-borough',BORO_MAP[p.borough]);
+  else if(p.borough&&/\bNJ\b|New Jersey/i.test(p.borough)) setSel('m-borough','0.765');
   setV('m-gfa',nb(p.gfa)); setV('m-nsf',nb(p.nsf)); setV('m-footprint',nb(p.footprint));
   setV('m-floors',nb(p.floors)); setV('m-units',nb(p.units));
   setV('m-f2f',nb(p.f2f)); setV('m-perim',nb(p.perimeter));
@@ -2256,7 +2260,7 @@ async function generateAIImage(){
   const planPages=[];
   for(const p of sampled){ try{ const u=await shrinkImage('data:image/jpeg;base64,'+p.b,1100); planPages.push({media_type:'image/jpeg',data:u.split(',')[1]}); }catch(e){} }
 
-  const boro={1:'Manhattan',0.92:'Brooklyn',0.90:'Queens',0.86:'Bronx',0.84:'Staten Island'}[m.boro]||'Brooklyn';
+  const boro=projectLocation().name;
   const wt={new:'new ground-up',conversion:'adaptive reuse / conversion',gut:'gut renovation',partial:'partial renovation'}[m.worktype]||'construction';
 
   let renderDesc=''; let elevationImg=null; let elevationSrc=null, elevationBox=null;
@@ -2264,7 +2268,7 @@ async function generateAIImage(){
     // Ask Claude to both FIND the actual elevation sheet among the sampled
     // pages (by 1-based position) and describe it — so we can use that exact
     // page as a real image reference for generation, not just a text summary.
-    const prompt='These are '+planPages.length+' sample pages (numbered 1 to '+planPages.length+' in the order given) from architectural plans for a '+m.floors+'-story, '+(m.units||0)+'-unit '+wt+' multifamily building in '+boro+', NYC ('+Math.round(m.gfa||0).toLocaleString()+' SF GFA). '+
+    const prompt='These are '+planPages.length+' sample pages (numbered 1 to '+planPages.length+' in the order given) from architectural plans for a '+m.floors+'-story, '+(m.units||0)+'-unit '+wt+' multifamily building in '+boro+(projectLocation().state==='NJ'?' (New Jersey)':', NYC')+' ('+Math.round(m.gfa||0).toLocaleString()+' SF GFA). '+
       'Find the page that shows an exterior building ELEVATION — a front/street-facing view of the full facade (not a floor plan, not a section, not a site plan), usually labeled "ELEVATION". '+
       'Respond with ONLY compact JSON, no markdown: {"elevationPageNumber": <1-based number of that page, or null if none of these sampled pages show one>, "elevationBox": [x0,y0,x1,y1] — the box around the single main FRONT/street elevation drawing on that page as fractions 0-1 of the page width/height (exclude the title block, notes, legends and other drawings), "description": "3-4 sentences describing the facade exactly as drawn — material of each zone (hatched = brick, plain/un-hatched = light smooth panel; say which zones are which, e.g. base, left upper, right upper), window size/pattern, cornice/parapet, entrance, whether balconies are shown and where, setbacks. Base this only on what is visible, and explicitly say \'no balconies shown\' if none appear."}';
     try{
@@ -2291,9 +2295,9 @@ async function generateAIImage(){
   cap.textContent='Rendering photorealistic exterior…';
   const facadePrompt = renderDesc
     ? (elevationImg
-        ? `Using the attached architectural elevation drawing as the exact reference for massing, floor count, window pattern, and balconies, produce a photorealistic exterior rendering of the actual building it depicts — not a redesign or a different building. A ${m.floors}-story ${wt} building in ${boro}, New York City, approximately ${m.units||0} units. ${renderDesc} Render exactly what is shown in the elevation, including any balconies exactly where they appear, set in a real NYC streetscape with sidewalk and adjacent buildings, daytime, clear sky, sharp photorealistic detail, no people, no text or watermarks.`
-        : `Photorealistic architectural exterior rendering, eye-level street view, daytime, clear sky, NYC streetscape context with sidewalk and adjacent buildings. A ${m.floors}-story ${wt} building in ${boro}, New York City. ${renderDesc} Clean modern architectural visualization style, sharp detail, natural lighting, no people, no text or watermarks.`)
-    : `Photorealistic architectural exterior rendering, eye-level street view, daytime, clear sky. A ${m.floors}-story ${wt} building in ${boro}, New York City, approximately ${m.units||0} units, ${Math.round(m.gfa||0).toLocaleString()} SF gross floor area. NYC streetscape context with sidewalk, street trees, and adjacent buildings. Clean modern architectural visualization style, sharp detail, natural lighting, no people, no text or watermarks.`;
+        ? `Using the attached architectural elevation drawing as the exact reference for massing, floor count, window pattern, and balconies, produce a photorealistic exterior rendering of the actual building it depicts — not a redesign or a different building. A ${m.floors}-story ${wt} building in ${boro}${projectLocation().state==='NJ'?'':', New York City'}, approximately ${m.units||0} units. ${renderDesc} Render exactly what is shown in the elevation, including any balconies exactly where they appear, set in a real ${projectLocation().state==='NJ'?'New Jersey':'NYC'} streetscape with sidewalk and adjacent buildings, daytime, clear sky, sharp photorealistic detail, no people, no text or watermarks.`
+        : `Photorealistic architectural exterior rendering, eye-level street view, daytime, clear sky, ${projectLocation().state==='NJ'?'New Jersey':'NYC'} streetscape context with sidewalk and adjacent buildings. A ${m.floors}-story ${wt} building in ${boro}${projectLocation().state==='NJ'?'':', New York City'}. ${renderDesc} Clean modern architectural visualization style, sharp detail, natural lighting, no people, no text or watermarks.`)
+    : `Photorealistic architectural exterior rendering, eye-level street view, daytime, clear sky. A ${m.floors}-story ${wt} building in ${boro}${projectLocation().state==='NJ'?'':', New York City'}, approximately ${m.units||0} units, ${Math.round(m.gfa||0).toLocaleString()} SF gross floor area. NYC streetscape context with sidewalk, street trees, and adjacent buildings. Clean modern architectural visualization style, sharp detail, natural lighting, no people, no text or watermarks.`;
 
   let photoOk=false;
   // 1st choice: FLUX Canny — the elevation drawing's own lines drive the image, so the building is the one drawn.
@@ -2414,7 +2418,7 @@ function renderAddress(boro){
   }
   a=a.replace(/\s+/g,' ').trim(); if(!a) return '';
   if(f&&!f.value.trim()) f.value=a;
-  if(!/\b(NY|New York|Brooklyn|Manhattan|Queens|Bronx|Staten Island)\b/i.test(a)) a+=', '+boro+', NY';
+  if(!/\b(NY|NJ|New York|New Jersey|Brooklyn|Manhattan|Queens|Bronx|Staten Island)\b/i.test(a)) a+=(projectLocation().state==='NJ'?', '+boro.replace(/,\s*NJ$/,'')+', NJ':', '+boro+', NY');
   return a;
 }
 async function placeOnStreet(facadeUrl,addr,m,cap){

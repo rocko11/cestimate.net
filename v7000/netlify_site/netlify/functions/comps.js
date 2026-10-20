@@ -1,9 +1,10 @@
 const { requireUser, unauthorized } = require('../lib/auth');
+const { isNJ, njComps } = require('../lib/nj');
 // Comparable sales + land value for the appraisal, from NYC Open Data (no key needed):
 //   PLUTO (64uk-42ks)                  — subject address → BBL, lat/lon, lot area, FAR, year built
 //   Rolling Calendar Sales (usep-8jbt) — recorded sales: price, GSF, units, date (building and vacant-land sales)
 // POST {address, borough?, gfa?, units?, months?} → {subject, comps:[…], land:{…}}
-const FN_VERSION = '2026-10-19b';
+const FN_VERSION = '2026-10-20-nj';
 const PLUTO = 'https://data.cityofnewyork.us/resource/64uk-42ks.json';
 const SALES = 'https://data.cityofnewyork.us/resource/usep-8jbt.json';
 const BORO = { 1:'MN', 2:'BX', 3:'BK', 4:'QN', 5:'SI' };
@@ -47,6 +48,11 @@ exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
   if (!(await requireUser(event))) return unauthorized();
   let body; try { body = JSON.parse(event.body || '{}'); } catch { return json(400, { error: 'Invalid JSON' }); }
+  // New Jersey addresses → NJ statewide parcel / MOD-IV / deed-sale data (netlify/lib/nj.js).
+  if (isNJ(body.address, body.state)) {
+    try { return json(200, await njComps(body)); }
+    catch (e) { return json(e.code || 500, { error: (e.code ? '' : 'Comp search failed: ') + ((e && e.message) || e) }); }
+  }
   const addr = normAddress(body.address);
   if (!addr) return json(400, { error: 'Missing address' });
   const boro = +body.borough || guessBoro(body.address) || 3;
@@ -128,7 +134,7 @@ exports.handler = async (event) => {
       value: Math.round(byBuildable > 0 ? (byLot > 0 ? byBuildable * 0.7 + byLot * 0.3 : byBuildable) : byLot),
       method: byBuildable > 0 ? 'Median time-adjusted $/buildable SF of nearby vacant-land sales × subject lot × max FAR (70%), cross-checked by $/lot SF (30%)' : 'Median time-adjusted $/lot SF of nearby vacant-land sales × subject lot area' };
 
-    return json(200, { version: FN_VERSION, subject, months, zips, candidates: { buildings: sales.length, land: landSales.length }, comps, land });
+    return json(200, { version: FN_VERSION, state: 'NY', source: 'NYC DOF recorded sales · PLUTO', subject, months, zips, candidates: { buildings: sales.length, land: landSales.length }, comps, land });
   } catch (e) {
     return json(500, { error: 'Comp search failed: ' + ((e && e.message) || e) });
   }
