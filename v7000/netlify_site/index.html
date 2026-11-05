@@ -117,6 +117,11 @@ a{color:var(--blue)}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
 /* ---------- sections ---------- */
+.watch{background:#fff;padding:84px 0}
+.watch .wrap{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.6fr);gap:56px;align-items:center}
+.player{position:relative;background:var(--ink);border-radius:10px;overflow:hidden;box-shadow:0 24px 60px rgba(11,34,57,.35);aspect-ratio:16/9}
+.player video{display:block;width:100%;height:100%;object-fit:cover;background:var(--ink)}
+@media (max-width:980px){.watch{padding:60px 0}.watch .wrap{grid-template-columns:1fr;gap:28px}}
 .sec{padding:96px 0}
 .sec--white{background:#fff}
 .sec--ink{background:var(--ink);color:#fff}
@@ -262,6 +267,7 @@ a{color:var(--blue)}
       <b>R Estimator</b>
     </a>
     <nav class="nav" aria-label="Page sections">
+      <a href="#watch">Watch</a>
       <a href="#how">How it works</a>
       <a href="#scope">What it covers</a>
       <a href="#why">Why R Estimator</a>
@@ -381,6 +387,23 @@ a{color:var(--blue)}
         </div>
       </figure>
       <p class="plan-note">An illustration of the idea, not a real project.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= VIDEO ================= -->
+<section class="watch" id="watch" aria-labelledby="watch-h">
+  <div class="wrap">
+    <div>
+      <h2 class="h2" id="watch-h">See it in 44 seconds</h2>
+      <div class="rule"></div>
+      <p class="sec-intro">From uploaded plans to a priced takeoff and a sell price. The project in the video is a sample.</p>
+    </div>
+    <div class="player">
+      <video controls preload="metadata" playsinline poster="/promo-poster.jpg" aria-label="R Estimator product video">
+        <source src="/r-estimator-promo.mp4" type="video/mp4">
+        Your browser can't play this video. <a href="/r-estimator-promo.mp4">Download it</a>.
+      </video>
     </div>
   </div>
 </section>
