@@ -117,11 +117,10 @@ a{color:var(--blue)}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
 /* ---------- sections ---------- */
-.watch{background:#fff;padding:84px 0}
-.watch .wrap{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.6fr);gap:56px;align-items:center}
-.player{position:relative;background:var(--ink);border-radius:10px;overflow:hidden;box-shadow:0 24px 60px rgba(11,34,57,.35);aspect-ratio:16/9}
-.player video{display:block;width:100%;height:100%;object-fit:cover;background:var(--ink)}
-@media (max-width:980px){.watch{padding:60px 0}.watch .wrap{grid-template-columns:1fr;gap:28px}}
+.player{position:relative;background:var(--ink);border-radius:8px;overflow:hidden;box-shadow:0 30px 70px rgba(0,0,0,.5);aspect-ratio:16/9;border:1px solid rgba(255,255,255,.14)}
+.player video{display:block;width:100%;height:100%;object-fit:cover}
+.unmute{position:absolute;left:14px;top:14px;border:0;border-radius:999px;background:var(--amber);color:var(--ink);font:600 14px/1 var(--body);padding:11px 18px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.35)}
+.unmute:hover{background:#FFB91F}
 .sec{padding:96px 0}
 .sec--white{background:#fff}
 .sec--ink{background:var(--ink);color:#fff}
@@ -267,7 +266,6 @@ a{color:var(--blue)}
       <b>R Estimator</b>
     </a>
     <nav class="nav" aria-label="Page sections">
-      <a href="#watch">Watch</a>
       <a href="#how">How it works</a>
       <a href="#scope">What it covers</a>
       <a href="#why">Why R Estimator</a>
@@ -299,111 +297,13 @@ a{color:var(--blue)}
     </div>
 
     <div>
-      <figure class="sheet" aria-label="Illustration: a sample floor plan being measured">
-        <svg class="plan" viewBox="0 0 640 392" role="img" aria-label="A sample apartment floor plan. A scan line crosses it and the rooms, windows and dimensions are picked up.">
-          <defs>
-            <linearGradient id="glow" x1="0" x2="1"><stop offset="0" stop-color="#F2A900" stop-opacity="0"/><stop offset="1" stop-color="#F2A900" stop-opacity=".28"/></linearGradient>
-          </defs>
-          <!-- rooms picked up as the scan passes -->
-          <rect class="rm" style="--d:.7s" x="42" y="42" width="188" height="138"/>
-          <rect class="rm" style="--d:1.2s" x="232" y="42" width="108" height="138"/>
-          <rect class="rm" style="--d:1.6s" x="342" y="42" width="108" height="138"/>
-          <rect class="rm" style="--d:2.0s" x="452" y="42" width="146" height="138"/>
-          <rect class="rm" style="--d:.9s" x="42" y="222" width="90" height="116"/>
-          <rect class="rm" style="--d:1.1s" x="134" y="222" width="116" height="116"/>
-          <rect class="rm" style="--d:1.9s" x="382" y="222" width="216" height="116"/>
-          <!-- walls -->
-          <rect class="wall" x="40" y="40" width="560" height="300"/>
-          <g class="part">
-            <line x1="40" y1="182" x2="600" y2="182"/>
-            <line x1="40" y1="220" x2="600" y2="220"/>
-            <line x1="231" y1="40" x2="231" y2="182"/>
-            <line x1="341" y1="40" x2="341" y2="182"/>
-            <line x1="451" y1="40" x2="451" y2="182"/>
-            <line x1="133" y1="220" x2="133" y2="340"/>
-            <line x1="251" y1="220" x2="251" y2="340"/>
-            <line x1="381" y1="220" x2="381" y2="340"/>
-            <line x1="316" y1="220" x2="316" y2="340"/>
-          </g>
-          <!-- windows in the exterior wall -->
-          <g class="win">
-            <rect x="82" y="36" width="64" height="8"/><rect x="262" y="36" width="52" height="8"/>
-            <rect x="372" y="36" width="52" height="8"/><rect x="490" y="36" width="70" height="8"/>
-            <rect x="82" y="336" width="40" height="8"/><rect x="160" y="336" width="64" height="8"/><rect x="430" y="336" width="130" height="8"/>
-            <rect x="596" y="250" width="8" height="60"/>
-          </g>
-          <!-- doors -->
-          <g class="door">
-            <path d="M180 182a28 28 0 0 1 28 28M180 182v28"/>
-            <path d="M262 182a28 28 0 0 0 28 28M290 182v28" transform="translate(0 0)"/>
-            <path d="M392 182a28 28 0 0 1 28 28M392 182v28"/>
-            <path d="M510 182a28 28 0 0 1 28 28M510 182v28"/>
-            <path d="M133 270a24 24 0 0 0 24 -24M133 246h24" transform="translate(0 0)"/>
-            <path d="M381 262a24 24 0 0 1 24 -24M381 238h24"/>
-          </g>
-          <!-- room labels -->
-          <g>
-            <text class="lbl" style="--d:.9s" x="136" y="116">Living</text><text class="lbl" style="--d:.9s" x="136" y="132">426 sf</text>
-            <text class="lbl" style="--d:1.35s" x="286" y="116">Bed 1</text><text class="lbl" style="--d:1.35s" x="286" y="132">142 sf</text>
-            <text class="lbl" style="--d:1.75s" x="396" y="116">Bed 2</text><text class="lbl" style="--d:1.75s" x="396" y="132">138 sf</text>
-            <text class="lbl" style="--d:2.1s" x="525" y="116">Kitchen</text><text class="lbl" style="--d:2.1s" x="525" y="132">164 sf</text>
-            <text class="lbl" style="--d:1.0s" x="87" y="276">Bath</text><text class="lbl" style="--d:1.0s" x="87" y="292">44 sf</text>
-            <text class="lbl" style="--d:1.2s" x="192" y="276">Bed 3</text><text class="lbl" style="--d:1.2s" x="192" y="292">131 sf</text>
-            <text class="lbl" style="--d:2.0s" x="490" y="276">Living</text><text class="lbl" style="--d:2.0s" x="490" y="292">302 sf</text>
-            <text class="lbl" style="--d:1.6s" x="283" y="276">Stair</text>
-            <text class="lbl" style="--d:1.7s" x="348" y="276">Elev.</text>
-          </g>
-          <!-- window tags -->
-          <g class="tag" style="--d:.8s"><circle cx="114" cy="62" r="9"/><text x="114" y="65">W1</text></g>
-          <g class="tag" style="--d:1.3s"><circle cx="288" cy="62" r="9"/><text x="288" y="65">W2</text></g>
-          <g class="tag" style="--d:1.7s"><circle cx="398" cy="62" r="9"/><text x="398" y="65">W3</text></g>
-          <g class="tag" style="--d:2.1s"><circle cx="525" cy="62" r="9"/><text x="525" y="65">W4</text></g>
-          <g class="tag" style="--d:1.1s"><circle cx="102" cy="318" r="9"/><text x="102" y="321">W5</text></g>
-          <g class="tag" style="--d:1.3s"><circle cx="192" cy="318" r="9"/><text x="192" y="321">W6</text></g>
-          <g class="tag" style="--d:2.2s"><circle cx="495" cy="318" r="9"/><text x="495" y="321">W7</text></g>
-          <!-- dimensions -->
-          <g class="dimg" style="--d:2.4s">
-            <g class="dim"><line x1="40" y1="20" x2="600" y2="20"/><line x1="40" y1="14" x2="40" y2="26"/><line x1="600" y1="14" x2="600" y2="26"/></g>
-            <text class="dimtxt" x="320" y="14" text-anchor="middle">56'-0"</text>
-            <g class="dim"><line x1="20" y1="40" x2="20" y2="340"/><line x1="14" y1="40" x2="26" y2="40"/><line x1="14" y1="340" x2="26" y2="340"/></g>
-            <text class="dimtxt" x="12" y="190" transform="rotate(-90 12 190)" text-anchor="middle">30'-0"</text>
-          </g>
-          <!-- scan line -->
-          <g class="scanner">
-            <rect class="scanglow" x="-30" y="12" width="70" height="340"/>
-            <line class="scan" x1="40" y1="12" x2="40" y2="352"/>
-          </g>
-        </svg>
-        <div class="count" aria-label="Counted from the sheets">
-          <div><small>Windows</small><b>7</b></div>
-          <div><small>Doors</small><b>6</b></div>
-          <div><small>Rooms</small><b>9</b></div>
-          <div><small>Net area</small><b>1,347 sf</b></div>
-        </div>
-        <div class="titleblock">
-          <div><small>Sheet</small><b>Sample floor plan</b></div>
-          <div><small>Read by</small><b>R Estimator</b></div>
-          <div><small>Status</small><b>Illustration</b></div>
-        </div>
-      </figure>
-      <p class="plan-note">An illustration of the idea, not a real project.</p>
-    </div>
-  </div>
-</section>
-
-<!-- ================= VIDEO ================= -->
-<section class="watch" id="watch" aria-labelledby="watch-h">
-  <div class="wrap">
-    <div>
-      <h2 class="h2" id="watch-h">See it in 44 seconds</h2>
-      <div class="rule"></div>
-      <p class="sec-intro">From uploaded plans to a priced takeoff and a sell price. The project in the video is a sample.</p>
-    </div>
-    <div class="player">
-      <video controls preload="metadata" playsinline poster="/promo-poster.jpg" aria-label="R Estimator product video">
-        <source src="/r-estimator-promo.mp4" type="video/mp4">
-        Your browser can't play this video. <a href="/r-estimator-promo.mp4">Download it</a>.
-      </video>
+      <div class="player" id="player">
+        <video id="promo" autoplay muted playsinline preload="auto" controls controlslist="nodownload" poster="/promo-poster.jpg" aria-label="R Estimator product video, 44 seconds">
+          <source src="/r-estimator-promo.mp4" type="video/mp4">
+        </video>
+        <button type="button" class="unmute" id="unmute">Play with sound</button>
+      </div>
+      <p class="plan-note">44-second overview. The project shown is a sample.</p>
     </div>
   </div>
 </section>
@@ -654,6 +554,15 @@ a{color:var(--blue)}
       .catch(function(){ say('We could not reach the server. Check your connection and try again.'); })
       .then(function(){ btn.disabled=false; btn.textContent=label; });
   });
+
+  // Hero video: starts muted (browsers block autoplay with sound); one tap restarts it with sound.
+  var pv=document.getElementById('promo'), ub=document.getElementById('unmute');
+  if(pv&&ub){
+    var p=pv.play(); if(p&&p.catch) p.catch(function(){});
+    ub.addEventListener('click',function(){ pv.muted=false; pv.currentTime=0; pv.play().catch(function(){}); ub.hidden=true; });
+    pv.addEventListener('volumechange',function(){ if(!pv.muted) ub.hidden=true; });
+    pv.addEventListener('ended',function(){ ub.textContent='Replay with sound'; ub.hidden=false; });
+  }
   // Already signed in? Offer the app in place of sign-in links.
   fetch(API+'?me',{credentials:'same-origin'}).then(function(r){
     if(!r.ok) return;
