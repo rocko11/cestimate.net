@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!-- Sign-in gate: the estimator is for approved accounts only. -->
+<style id="auth-gate">.app{visibility:hidden}</style>
+<script>
+(function(){
+  var toLogin=function(){ location.replace('/login?next='+encodeURIComponent(location.pathname+location.search)); };
+  var nf=window.fetch.bind(window);
+  // Any paid call that comes back 401 (session expired / account disabled) sends you to sign in.
+  window.fetch=function(u,o){ return nf(u,o).then(function(r){ var s=String(u&&u.url||u); if(r.status===401&&s.indexOf('/.netlify/functions/')>=0&&s.indexOf('/auth')<0) toLogin(); return r; }); };
+  window.restSignOut=function(){ nf('/.netlify/functions/auth',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:'{"action":"logout"}'}).finally(function(){ location.replace('/login'); }); };
+  nf('/.netlify/functions/auth?me',{credentials:'same-origin'}).then(function(r){
+    if(r.status===401) return toLogin();
+    return r.json().then(function(d){
+      window.REST_USER=d.user||null;
+      var show=function(){
+        var g=document.getElementById('auth-gate'); if(g) g.remove();
+        var top=document.querySelector('.tb-top'); if(!top||!d.user) return;
+        var c=document.createElement('div'); c.className='user-chip';
+        var esc=function(x){ return String(x||'').replace(/[&<>"]/g,function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]; }); };
+        c.innerHTML='<span class="uc-name">'+esc(d.user.name||d.user.email)+'</span>'+(d.user.role==='admin'?'<a href="/admin">Admin</a>':'')+'<button type="button" onclick="restSignOut()">Sign out</button>';
+        top.appendChild(c);
+      };
+      if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',show); else show();
+    });
+  }).catch(function(){ var g=document.getElementById('auth-gate'); if(g) g.remove(); });
+})();
+</script>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-F0WZ7PX9YD"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-F0WZ7PX9YD');
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>R Estimator — NYC Plan Takeoff</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 58 58'><rect width='58' height='58' rx='13' fill='%230B2239'/><g transform='translate(3.5,12.5) scale(0.47)' fill='none' stroke-linecap='round' stroke-linejoin='round'><path d='M14 6C12 20 13 38 12 62' stroke='%23fff' stroke-width='13'/><path d='M14 6C26 1 58 4 68 20C78 36 66 52 14 52' stroke='%23fff' stroke-width='13'/><path d='M36 52C58 56 80 60 98 64' stroke='%23fff' stroke-width='12'/><path d='M98 64C103 60 104 54 100 50' stroke='%23F2A900' stroke-width='10'/></g></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=20261017-a">
+</head>
+<body>
+<div class="app">
+
+<div class="header">
+  <div class="tb-top">
+    <svg class="logo" width="58" height="58" viewBox="0 0 58 58" fill="none" aria-label="R Estimator">
+      <rect x=".75" y=".75" width="56.5" height="56.5" rx="13" fill="#123A5E" stroke="#1D6FB8" stroke-width="1.5"/>
+      <path d="M9 15h40M9 24h40M9 33h40M9 42h40M16 9v40M25 9v40M34 9v40M43 9v40" stroke="#1D6FB8" stroke-opacity=".28" stroke-width="1"/>
+      <g transform="translate(3.5,12.5) scale(0.47)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M 14 6 C 12 20, 13 38, 12 62" stroke="#fff" stroke-width="12"/>
+        <path d="M 14 6 C 26 1, 58 4, 68 20 C 78 36, 66 52, 14 52" stroke="#fff" stroke-width="12"/>
+        <path d="M 36 52 C 58 56, 80 60, 98 64" stroke="#fff" stroke-width="11"/>
+        <path d="M 98 64 C 103 60, 104 54, 100 50" stroke="#F2A900" stroke-width="9"/>
+      </g>
+    </svg>
+    <div class="tb-title">
+      <div class="brand">P National Group</div>
+      <h1>R Estimator</h1>
+      <div class="rule"></div>
+      <p>Upload DOB-approved plans. Read the schedules, price the takeoff, cost the labor, and issue a client-ready proposal — built on current New York rates.</p>
+    </div>
+  </div>
+  <div class="tb-strip">
+    <div class="tb-cell"><div class="tb-k">Discipline</div><div class="tb-v">Hard-cost estimate</div></div>
+    <div class="tb-cell"><div class="tb-k">Basis</div><div class="tb-v">Plan schedules + takeoff factors</div></div>
+    <div class="tb-cell"><div class="tb-k">Pricing</div><div class="tb-v"><span class="amber">2025–26</span> NYC market</div></div>
+    <div class="tb-cell"><div class="tb-k">Accuracy / Build</div><div class="tb-v">± 20–30% · <span class="amber">v20260903-0856</span></div></div>
+  </div>
+</div>
+
+<div id="err-banner" class="note err hidden"></div>
+
+<div class="steps">
+  <div class="step-chip active" id="chip-1"><span class="n">1</span> Upload plans</div>
+  <div class="step-chip" id="chip-2"><span class="n">2</span> Verify extracted data</div>
+  <div class="step-chip" id="chip-3"><span class="n">3</span> Takeoff, labor &amp; estimate</div>
+</div>
+
+<!-- STEP 1: UPLOAD -->
+<div id="step-1">
+  <div class="section">
+    <div class="section-title">Upload building plans</div>
+    <div class="drop" id="drop">
+      <div class="big">📐</div>
+      <h3>Drop plan files here or click to browse</h3>
+      <p>PDF or images (PNG/JPG). You can also add a CAD file (.dwg / .dxf) for exact wall lengths. For best results upload the key sheets: cover/zoning, floor plans, and schedules (window, door, MEP equipment).</p>
+      <input type="file" id="fileinput" multiple accept="application/pdf,image/*,.dwg,.dxf" style="display:none">
+    </div>
+    <div class="filelist" id="filelist"></div>
+    <div class="note" style="margin-top:12px">Large files are fine — each plan is automatically compressed in your browser as soon as you add it (you'll see "12 MB → 0.8 MB ✓"), so it stays under the upload limit. For best accuracy, include the schedule sheets (window, door, MEP). Compression needs an internet connection. A copy of every file you add is saved to your account.</div>
+  </div>
+  <div class="actions">
+    <button class="btn btn-primary" id="analyze-btn" onclick="analyzePlans()" disabled>Analyze plans with AI →</button>
+    <button class="btn" onclick="manualEntry()">Skip — enter metrics manually</button>
+    <button class="btn" onclick="loadExample()">Load 124 Washington example</button>
+    <label class="btn" style="cursor:pointer">Load saved estimate<input type="file" accept="application/json" style="display:none" onchange="loadTemplate(this)"></label>
+    <button class="btn" onclick="testBackend()">🔌 Test backend</button>
+  </div>
+
+  <div class="section" style="margin-top:1.25rem">
+    <div class="section-title">Or describe the project (no plans needed)</div>
+    <div class="card">
+      <div class="field">
+        <label>Project description <span class="hint">— e.g. "5-story new multifamily in Queens, 30,000 SF, 24 units, 2 elevators, R-2"</span></label>
+        <input id="prompt-text" placeholder="Describe the building, size, units, borough, work type…">
+      </div>
+      <div class="actions" style="margin-top:.75rem">
+        <button class="btn" onclick="estimateFromPrompt()">Generate estimate from description →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ANALYZING -->
+<div id="analyzing" class="hidden">
+  <div class="progress">
+    <span class="spinner" style="border-color:#534AB7;border-top-color:transparent"></span>
+    <div class="msg" id="analyze-msg">Reading your plans…</div>
+    <div class="sub" id="analyze-sub">Extracting building metrics, unit counts, and schedule quantities</div>
+  </div>
+</div>
+
+<!-- STEP 2: VERIFY -->
+<div id="step-2" class="hidden">
+  <div class="note" id="extract-note"><span class="ai-badge">Review</span> &nbsp;Review the values below and correct anything that’s off — every field is editable.</div>
+
+  <div class="section">
+    <div class="section-title">Project identification</div>
+    <div class="card">
+      <div class="grid3">
+        <div class="field ai"><label>Project name / address</label><input id="m-name"></div>
+        <div class="field ai"><label>DOB Job #</label><input id="m-job"></div>
+        <div class="field"><label>Location (borough / NJ county)</label>
+          <select id="m-borough" onchange="recalc()">
+            <optgroup label="New York City">
+            <option value="1.0">Manhattan</option><option value="0.92">Brooklyn</option>
+            <option value="0.90">Queens</option><option value="0.86">Bronx</option><option value="0.84">Staten Island</option>
+            </optgroup>
+            <optgroup label="New Jersey"><option value="0.83" data-state="NJ">Hudson County, NJ</option><option value="0.825" data-state="NJ">Essex County, NJ</option><option value="0.82" data-state="NJ">Union County, NJ</option><option value="0.815" data-state="NJ">Bergen County, NJ</option><option value="0.81" data-state="NJ">Passaic County, NJ</option><option value="0.805" data-state="NJ">Middlesex County, NJ</option><option value="0.80" data-state="NJ">Morris County, NJ</option><option value="0.795" data-state="NJ">Somerset County, NJ</option><option value="0.79" data-state="NJ">Monmouth County, NJ</option><option value="0.785" data-state="NJ">Mercer County, NJ</option><option value="0.78" data-state="NJ">Ocean County, NJ</option><option value="0.775" data-state="NJ">Camden County, NJ</option><option value="0.772" data-state="NJ">Burlington County, NJ</option><option value="0.765" data-state="NJ">Other NJ county County, NJ</option></optgroup>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Building metrics</div>
+    <div class="card">
+      <div class="grid4">
+        <div class="field ai"><label>Total GFA (SF) <span class="hint">— auto-derives from footprint × floors if blank</span></label><input id="m-gfa" type="number" oninput="recalc()"></div>
+        <div class="field ai"><label>Net residential SF</label><input id="m-nsf" type="number" oninput="recalc()"></div>
+        <div class="field ai"><label>Footprint / floor (SF)</label><input id="m-footprint" type="number" oninput="recalc()"></div>
+        <div class="field ai"><label># Floors</label><input id="m-floors" type="number" oninput="recalc()"></div>
+        <div class="field ai"><label># Dwelling units</label><input id="m-units" type="number" oninput="recalc()"></div>
+        <div class="field ai"><label>Floor-to-floor (ft)</label><input id="m-f2f" type="number" step="0.5" oninput="recalc()"></div>
+        <div class="field ai"><label>Perimeter (LF)</label><input id="m-perim" type="number" oninput="recalc()"></div>
+        <div class="field"><label>Cellar?</label><select id="m-cellar" onchange="recalc()"><option value="1">Yes</option><option value="0">No</option></select></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Excavation &amp; foundation support</div>
+    <div class="card">
+      <div class="grid4">
+        <div class="field ai"><label>Excavation depth (ft) <span class="hint">— blank = 12 w/ cellar, 4 without</span></label><input id="m-exc-depth" type="number" step="0.5" placeholder="auto" oninput="recalc()"></div>
+        <div class="field ai"><label>SOE / shoring length (LF) <span class="hint">— blank = full perimeter if cellar</span></label><input id="m-soe-lf" type="number" placeholder="auto" oninput="recalc()"></div>
+        <div class="field ai"><label>Underpinning (LF of neighbor walls) <span class="hint">— blank = ½ perimeter if cellar</span></label><input id="m-underpin-lf" type="number" placeholder="auto" oninput="recalc()"></div>
+        <div class="field ai"><label>Piles (count) <span class="hint">— from foundation/pile plan</span></label><input id="m-piles" type="number" placeholder="0" oninput="recalc()"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Net floor area by floor</div>
+    <div class="card">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <input id="qf-text" class="cell" style="flex:1;min-width:260px;text-align:left" placeholder="Quick entry:  cellar 9604, 1 9604, 2 9604, 3-8 9604, 9-10 4725">
+        <button class="btn" type="button" onclick="applyQuickFloors()">Apply floor areas</button>
+        <span class="hint">gross SF per floor. Sets floors, GFA, NSF (85%) and footprint</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table id="floor-table">
+          <thead><tr>
+            <th>Floor</th><th class="num">Gross SF <span class="hint" style="color:#A9C2D8;text-transform:none;letter-spacing:0">from plans</span></th>
+            <th class="num">Net SF <span class="hint" style="color:#A9C2D8;text-transform:none;letter-spacing:0">from plans</span></th>
+            <th class="num">Efficiency</th><th></th>
+          </tr></thead>
+          <tbody id="floor-body"></tbody>
+          <tfoot>
+            <tr class="subtot">
+              <td>TOTALS</td>
+              <td class="num" id="fl-tot-gross">&#8212;</td>
+              <td class="num" id="fl-tot-net">&#8212;</td>
+              <td class="num"><strong id="fl-eff">&#8212;</strong></td><td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <div class="actions" style="margin-top:.6rem">
+        <button class="btn" onclick="createFloorRows()">&#8862; Create a row per floor</button>
+        <button class="btn" onclick="addFloorRow()">+ Add floor</button>
+      </div>
+      <div class="note" style="margin-top:.6rem"><strong>Measured values only — nothing is estimated.</strong> Gross and net per floor come from the plan&#8217;s floor-area / zoning analysis table (the AI reads that table when it appears in the uploaded set) or your own figures. Efficiency is computed from the numbers, never assumed. Totals update Total GFA and Net residential SF above only once <strong>every</strong> floor has a value &#8212; partial entry never overwrites your totals.</div>
+    </div>
+
+    <div class="section-title">Type &amp; scope</div>
+    <div class="card">
+      <div class="grid4">
+        <div class="field ai"><label>Work type</label>
+          <select id="m-worktype" onchange="recalc()">
+            <option value="new">New construction</option>
+            <option value="conversion">Adaptive reuse / conversion</option>
+            <option value="gut">Full gut renovation</option>
+            <option value="partial">Partial renovation</option>
+          </select>
+        </div>
+        <div class="field ai"><label>Construction type</label>
+          <select id="m-ctype" onchange="recalc()">
+            <option value="1.15">I-A fireproof</option><option value="1.10">I-B</option>
+            <option value="1.0">II-A</option><option value="0.96">II-B</option>
+            <option value="0.93">III-A masonry/timber</option><option value="0.90">III-B</option>
+            <option value="0.85">V wood frame</option>
+          </select>
+        </div>
+        <div class="field ai"><label>Occupancy</label>
+          <select id="m-occ" onchange="recalc()">
+            <option value="1.0">R-2 multifamily</option><option value="0.88">R-3</option>
+            <option value="1.0">B office</option><option value="1.25">A assembly</option>
+            <option value="0.92">M retail</option><option value="1.42">I institutional</option>
+          </select>
+        </div>
+        <div class="field"><label>Inner court / curtain wall?</label><select id="m-court" onchange="recalc()"><option value="0">No</option><option value="1">Yes</option></select></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Schedule counts (from plan schedules)</div>
+    <div class="card">
+      <div class="grid4">
+        <div class="field ai"><label>Windows (total)</label><input id="m-windows" type="number" oninput="recalc()"></div>
+        <div class="field ai"><label>Entry doors</label><input id="m-doors-entry" type="number" oninput="recalc()"></div>
+        <div class="field ai"><label>Stair/fire doors</label><input id="m-doors-stair" type="number" oninput="recalc()"></div>
+        <div class="field ai"><label>Interior doors</label><input id="m-doors-int" type="number" oninput="recalc()"></div>
+        <div class="field ai"><label>HVAC condensers (roof)</label><input id="m-hvac-cu" type="number" oninput="recalc()"></div>
+        <div class="field ai"><label>HVAC indoor units</label><input id="m-hvac-ah" type="number" oninput="recalc()"></div>
+        <div class="field ai"><label>Exhaust fans (kit+bath)</label><input id="m-exhaust" type="number" oninput="recalc()"></div>
+        <div class="field ai"><label>Elevators</label><input id="m-elev" type="number" oninput="recalc()"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn" onclick="backToUpload()">← Re-upload</button>
+    <div id="prov-block" class="note err hidden" style="margin-bottom:.6rem"></div>
+    <button class="btn btn-primary" onclick="goToResults()">Run takeoff →</button>
+  </div>
+</div>
+
+<!-- STEP 3: RESULTS -->
+<div id="step-3" class="hidden">
+  <div class="summary-grid">
+    <div class="metric"><div class="metric-label">Total hard cost</div><div class="metric-value" id="s-total">—</div><div class="metric-sub">incl. GC O&amp;P + contingency</div></div>
+    <div class="metric"><div class="metric-label">Cost / SF (GFA)</div><div class="metric-value" id="s-psf">—</div><div class="metric-sub" id="s-bench">—</div></div>
+    <div class="metric"><div class="metric-label">Cost / unit</div><div class="metric-value" id="s-unit">—</div><div class="metric-sub" id="s-units">—</div></div>
+    <div class="metric"><div class="metric-label">Line items</div><div class="metric-value" id="s-lines">—</div><div class="metric-sub">across divisions</div></div>
+  </div>
+
+  <div class="actions" style="margin-top:0;margin-bottom:1rem">
+    <button class="btn btn-green" onclick="exportExcel()">⬇ Our estimate (Excel)</button>
+    <button class="btn" onclick="exportExcel('market')" style="border-color:var(--green);color:var(--green);font-weight:600">⬇ Market estimate (Excel)</button>
+    <button class="btn" onclick="sendToDealBuilder()" style="background:#1a7f5a;color:#fff;border-color:#1a7f5a;font-weight:600" title="Send all hard costs, unit counts &amp; building metrics to Deal Builder">🔗 Send to Deal Builder →</button>
+    <button class="btn" onclick="openRendering()" style="background:#1a3a6b;color:#fff;border-color:#1a3a6b;font-weight:600" title="Generate 3D rendering from building metrics">🏗 3D Rendering</button>
+    <button class="btn" onclick="backToVerify()">← Adjust inputs</button>
+    <button class="btn btn-primary" onclick="buildProposal()">📄 Client proposal</button>
+    <button class="btn" onclick="openAppraisal()" title="Cost, sales comparison and income approaches reconciled into one opinion of value">🏛 Appraisal report</button>
+    <button class="btn" onclick="openSpecs()">📋 Materials &amp; specs</button>
+    <button class="btn" onclick="openElectrical()">⚡ Electrical breakdown</button>
+    <button class="btn" onclick="openPlumbing()">🚿 Plumbing breakdown</button>
+    <button class="btn" onclick="saveTemplate()">💾 Save estimate</button>
+    <button class="btn" onclick="resetEstimate()">↺ Reset edits</button>
+    <button class="btn" onclick="window.print()">🖨 Print</button>
+  </div>
+
+  <div class="section">
+    <div id="unreadable-warn" class="note err hidden" style="margin-bottom:.75rem"></div>
+    <div id="assumptions" class="note hidden" style="margin-bottom:.75rem;border-left:4px solid #b26a00"></div>
+
+    <div id="nsf-warn" class="note warn hidden"><strong>Net SF is not set.</strong> The plans didn&#8217;t state it and nothing is assumed &#8212; net-area-based lines (finishes, interior demo) are priced at 0 until you enter Net SF or complete the floor-by-floor table.</div>
+
+    <div class="section-title">Material quantity takeoff</div>
+    <div style="overflow-x:auto">
+      <table id="takeoff-table">
+        <thead><tr>
+          <th>Material / work item</th><th>Quantity basis</th>
+          <th class="num">Qty</th><th>Unit</th><th class="num">Unit $</th>
+          <th class="num">Material $</th><th class="num">Labor $</th><th class="num">Extended $</th>
+        </tr></thead>
+        <tbody id="takeoff-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:.85rem">
+    <div class="section-title" style="margin-bottom:.6rem">Add a line item</div>
+    <div class="grid4">
+      <div class="field"><label>Division</label>
+        <select id="cr-div">
+          <option>02 · Demolition</option><option>04 · Masonry</option><option>05 · Metals</option>
+          <option>06 · Wood &amp; Timber</option><option>07 · Thermal &amp; Moisture</option>
+          <option>08 · Openings (Doors &amp; Windows)</option><option>09 · Finishes</option>
+          <option>11 · Kitchens, Baths &amp; Appliances</option><option>14 · Conveying</option>
+          <option>21/22 · Plumbing &amp; Fire Protection</option><option>23 · HVAC / Mechanical</option>
+          <option>26 · Electrical</option><option selected>99 · Other / Custom</option>
+        </select>
+      </div>
+      <div class="field"><label>Description</label><input id="cr-name" placeholder="e.g. Rooftop deck"></div>
+      <div class="field"><label>Qty</label><input id="cr-qty" type="number" step="any"></div>
+      <div class="field"><label>Unit</label>
+        <select id="cr-unit"><option>LS</option><option>SF</option><option>LF</option><option>EA</option><option>CY</option></select>
+      </div>
+      <div class="field"><label>Unit $</label><input id="cr-price" type="number" step="any"></div>
+      <div class="field"><label>Man-hrs / unit <span class="hint">optional</span></label><input id="cr-mh" type="number" step="any"></div>
+      <div class="field"><label>Trade</label>
+        <select id="cr-trade">
+          <option value="laborer">Laborer</option><option value="carpenter">Carpenter</option>
+          <option value="concrete">Concrete</option><option value="mason">Mason</option>
+          <option value="drywall">Drywall</option><option value="painter">Painter</option>
+          <option value="plumber">Plumber</option><option value="electrician">Electrician</option>
+          <option value="hvac">HVAC</option><option value="roofer">Roofer</option>
+        </select>
+      </div>
+      <div class="field"><label>&nbsp;</label><button class="btn btn-primary" onclick="addCustomRow()">+ Add line</button></div>
+    </div>
+    <div class="note" style="margin-top:.6rem">Every quantity and unit rate in the table above is editable — type over it and totals update instantly. Use the – button to exclude a line from the estimate, or × to delete one you added.</div>
+  </div>
+
+  <div class="totals">
+    <div class="r"><span class="l">Material</span><span class="v" id="t-mat">—</span></div>
+    <div class="r"><span class="l">Labor (loaded, embedded in prices)</span><span class="v" id="t-lab">—</span></div>
+    <div class="r"><span class="l">Direct work subtotal</span><span class="v" id="t-direct">—</span></div>
+    <div class="r"><span class="l">General conditions (<span id="gc-l">8</span>%)</span><span class="v" id="t-gc">—</span></div>
+    <div class="r"><span class="l">GC overhead &amp; profit (<span id="op-l">12</span>%)</span><span class="v" id="t-op">—</span></div>
+    <div class="cont-row" style="flex-wrap:wrap">
+      <label class="l"><input type="checkbox" id="ppi-on" checked onchange="recalc()"> Adjust materials to latest open-data prices (BLS PPI)</label>
+      <div id="ppi-box" style="width:100%;font-size:12px;margin-top:4px">Loading material price index…</div>
+    </div>
+    <div class="cont-row">
+      <span class="l">Pricing</span>
+      <select id="price-book" onchange="setPriceBook(this.value)" style="margin-left:8px">
+        <option value="market">Market (subcontracted, GC markup)</option>
+        <option value="owner">P National proforma (self-performed GC)</option>
+        <option value="learned">My past budgets (imported)</option>
+      </select>
+      <button class="btn" type="button" style="margin-left:8px" onclick="openPriceBook()">📒 Import past budget</button>
+    </div>
+    <div class="cont-row">
+      <span class="l">GC %</span><input id="gc-pct" type="number" value="8" oninput="recalc()">
+      <span class="l" style="margin-left:12px">O&amp;P %</span><input id="op-pct" type="number" value="12" oninput="recalc()">
+      <span class="l" style="margin-left:12px">Contingency %</span><input id="cont-pct" type="number" value="15" oninput="recalc()">
+      <span class="v" id="t-cont" style="margin-left:auto">—</span>
+    </div>
+    <div class="r big"><span class="l">Total estimated hard cost</span><span class="v" id="t-grand">—</span></div>
+    <div class="cont-row">
+      <span class="l">Target margin %</span><input id="margin-pct" type="number" value="0" oninput="recalc()">
+      <span class="l">Sell price at <span id="margin-l">0</span>% margin</span>
+      <span class="v" id="t-sell" style="margin-left:auto">—</span>
+    </div>
+    <div id="mkt-compare" style="margin-top:.5rem;padding-top:.5rem;border-top:1px dashed var(--line)"></div>
+  </div>
+
+  <div class="note warn" style="margin-top:1rem">Accuracy ±20–30%, pre-bid. Items from plan schedules (windows, doors, HVAC equipment, elevators) are counted; area/length materials (GWB, partitions, paint, insulation) are derived using standard takeoff factors. Excludes soft costs (design fees, DOB filing/inspection fees, financing, insurance, FF&amp;E). Verify against dimensioned drawings before bid.</div>
+
+  <!-- SCOPE OF WORK: LABOR & SCHEDULE -->
+  <div class="section" style="margin-top:1.75rem">
+    <div class="section-title">Scope of work · labor &amp; schedule</div>
+
+    <div class="summary-grid">
+      <div class="metric"><div class="metric-label">Total labor</div><div class="metric-value" id="l-hours">—</div><div class="metric-sub">man-hours</div></div>
+      <div class="metric"><div class="metric-label">Loaded labor cost</div><div class="metric-value" id="l-cost">—</div><div class="metric-sub">embedded in costs above</div></div>
+      <div class="metric"><div class="metric-label">Project duration</div><div class="metric-value" id="l-days">—</div><div class="metric-sub" id="l-cal">—</div></div>
+      <div class="metric">
+        <div class="metric-label">Labor rate adj.</div>
+        <input id="labor-mult" type="number" step="0.05" value="1.0" oninput="recalc()" style="width:100%;padding:6px 9px;font-size:18px;font-weight:700;border:1px solid #cdc7f0;border-radius:8px;background:#faf9ff;font-family:inherit;outline:none">
+        <div class="metric-sub">× NYC loaded rates</div>
+      </div>
+    </div>
+
+    <div style="overflow-x:auto">
+      <table id="labor-table">
+        <thead><tr>
+          <th>Division / work package</th>
+          <th class="num">Labor hrs</th><th class="num">Crew</th>
+          <th class="num">Work-days</th><th class="num">Labor $</th><th style="width:190px">Timeline</th>
+        </tr></thead>
+        <tbody id="labor-body"></tbody>
+      </table>
+    </div>
+
+    <div class="section" style="margin-top:1.5rem">
+      <div class="section-title">Trade wage table <span style="font-weight:400;text-transform:none;letter-spacing:0">— loaded $/hr, editable</span></div>
+      <div style="overflow-x:auto">
+        <table id="wage-table">
+          <thead><tr><th>Trade</th><th class="num">Loaded rate</th><th>Basis</th></tr></thead>
+          <tbody id="wage-body"></tbody>
+        </table>
+      </div>
+      <div class="actions" style="margin-top:.6rem">
+        <button class="btn" onclick="setRateMode('open')">Open-shop rates (default)</button>
+        <button class="btn" onclick="setRateMode('union')">Union rates</button>
+        <button class="btn" onclick="resetWages()">↺ Reset wages to NYC defaults</button>
+      </div>
+      <div class="note" style="margin-top:.6rem">Loaded hourly rates (wage + burden), defaulted to <strong>NYC open-shop</strong>; one click swaps the whole table to union scale. Editing a rate re-prices that trade's labor everywhere it appears and updates the material/labor split. Rates are saved with "Save estimate".</div>
+    </div>
+
+    <div class="note" style="margin-top:1rem">Man-hours = estimate-grade productivity factors × takeoff quantities. Crew sizes and phase durations are planning-level: trades within a phase run concurrently, so each <strong>phase duration is the longest trade in that phase</strong>, and the project duration is the sum across phases. The labor dollars shown are the loaded crew cost <strong>already contained within the installed unit prices above</strong> — they are not added on top of the hard-cost total. Adjust the labor-rate multiplier for tighter local wage data.</div>
+  </div>
+</div>
+
+<!-- STEP 4: CLIENT PROPOSAL -->
+<div id="step-4" class="hidden">
+  <div class="actions no-print" style="margin-bottom:1rem">
+    <button class="btn" onclick="backFromProposal()">← Back to estimate</button>
+    <button class="btn btn-green" onclick="window.print()">🖨 Print / Save as PDF</button>
+  </div>
+  <div id="proposal" class="proposal"></div>
+</div>
+
+<!-- STEP 8: APPRAISAL REPORT (three approaches to value) -->
+<div id="step-8" class="hidden">
+  <div class="actions no-print" style="margin-bottom:1rem">
+    <button class="btn" onclick="backFromAppraisal()">← Back to estimate</button>
+    <button class="btn btn-green" onclick="window.print()">🖨 Print / Save as PDF</button>
+  </div>
+  <div id="apr-form" class="no-print"></div>
+  <div id="appraisal" class="proposal"></div>
+</div>
+
+<div id="step-7" class="hidden">
+  <div class="actions no-print" style="margin-bottom:1rem">
+    <button class="btn" onclick="backFromPlumbing()">← Back to estimate</button>
+    <button class="btn btn-green" onclick="window.print()">🖨 Print / Save as PDF</button>
+  </div>
+  <div class="proposal">
+    <h2 style="margin-bottom:.25rem">Plumbing breakdown</h2>
+    <div id="plumb"></div>
+  </div>
+</div>
+
+<div id="step-6" class="hidden">
+  <div class="actions no-print" style="margin-bottom:1rem">
+    <button class="btn" onclick="backFromElectrical()">← Back to estimate</button>
+    <button class="btn btn-green" onclick="window.print()">🖨 Print / Save as PDF</button>
+  </div>
+  <div class="proposal">
+    <h2 style="margin-bottom:.25rem">Electrical breakdown</h2>
+    <div id="elec"></div>
+  </div>
+</div>
+
+<div id="step-5" class="hidden">
+  <div class="actions no-print" style="margin-bottom:1rem">
+    <button class="btn" onclick="backFromSpecs()">← Back to estimate</button>
+    <button class="btn btn-primary" id="spec-genall" onclick="genAllSpecPhotos()">📷 Generate all photos</button>
+    <button class="btn btn-green" onclick="window.print()">🖨 Print / Save as PDF</button>
+  </div>
+  <div class="proposal">
+    <h2 style="margin-bottom:.25rem">Materials &amp; specifications</h2>
+    <p class="hint" style="margin-bottom:.5rem">Every item in this estimate with its material type. Photos are AI-generated illustrations of the specified item, not manufacturer product photos — generated once and remembered in this browser.</p>
+    <div id="specs"></div>
+  </div>
+</div>
+
+</div>
+<script>
+window.addEventListener('error',function(e){
+  var el=document.getElementById('err-banner');
+  if(el){ el.textContent='Script error: '+(e.message||'unknown')+'  — please report this.'; el.classList.remove('hidden'); }
+});
+</script>
+<script src="vault.js?v=20261017-a"></script>
+<script src="app.js?v=20261020-nj"></script>
+<script src="appraisal.js?v=20261020-nj"></script>
+
+<!-- 3D RENDERING MODAL -->
+<div id="rendering-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,20,38,.93);overflow:auto;">
+  <div style="max-width:920px;margin:28px auto;padding:0 16px 48px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+      <div>
+        <div style="color:#F2A900;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:3px">P National Group</div>
+        <h2 style="color:#fff;font-size:22px;font-weight:700;margin:0" id="render-title">Building Rendering</h2>
+      </div>
+      <button onclick="closeRendering()" style="background:none;border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:8px;padding:8px 18px;cursor:pointer;font-size:14px;font-family:inherit">✕ Close</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
+      <div style="background:#0d1f35;border-radius:12px;border:1px solid rgba(255,255,255,.08);overflow:hidden;">
+        <div style="padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between;">
+          <span style="color:#7a9ab8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">3D Block Model</span>
+          <span style="color:#3a5570;font-size:11px" id="render-metrics-badge">—</span>
+        </div>
+        <canvas id="render-canvas-3d" style="display:block;width:100%;height:340px;background:#0a1520;cursor:grab;"></canvas>
+        <div style="padding:7px 16px;font-size:11px;color:#3a5570;">Drag to rotate · Scroll to zoom</div>
+      </div>
+      <div style="background:#0d1f35;border-radius:12px;border:1px solid rgba(255,255,255,.08);overflow:hidden;">
+        <div style="padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between;">
+          <span style="color:#7a9ab8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">AI Exterior Rendering</span>
+          <input id="render-addr" placeholder="Street address (e.g. 915 Dean St)" style="flex:1;margin:0 8px;min-width:0;background:#0a1520;border:1px solid rgba(255,255,255,.12);color:#cfe3f5;border-radius:6px;padding:3px 8px;font-size:11px;font-family:inherit"><button id="regen-btn" onclick="generateAIImage()" style="background:rgba(29,111,184,.2);border:1px solid rgba(29,111,184,.35);color:#5aadee;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:inherit">↺ Regenerate</button>
+        </div>
+        <div id="ai-render-container" style="height:340px;position:relative;background:#0a1520;display:flex;align-items:center;justify-content:center;">
+          <div id="ai-render-loading" style="text-align:center;color:#3a5570;">
+            <div style="font-size:32px;margin-bottom:8px">🏗</div>
+            <div style="font-size:13px">Generating rendering…</div>
+          </div>
+          <div id="ai-render-error" style="display:none;color:#e56;font-size:13px;padding:20px;text-align:center;"></div>
+        </div>
+        <div style="padding:8px 16px;font-size:11px;color:#3a5570;line-height:1.4;" id="ai-render-caption">AI-generated architectural exterior</div>
+      </div>
+    </div>
+    <div style="background:#0d1f35;border-radius:12px;border:1px solid rgba(255,255,255,.08);padding:14px 20px;">
+      <div style="color:#7a9ab8;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;margin-bottom:10px">Building Summary</div>
+      <div id="render-summary" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;"></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

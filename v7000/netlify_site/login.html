@@ -158,7 +158,7 @@ input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(29,111,184,.15)}
 
 <script>
 const API='/.netlify/functions/auth';
-const next=(()=>{ const n=new URLSearchParams(location.search).get('next')||'/'; return /^\/(?!\/)/.test(n)?n:'/'; })();
+const next=(()=>{ const n=new URLSearchParams(location.search).get('next')||'/app'; return /^\/(?!\/)/.test(n)?n:'/app'; })();
 function show(w){
   document.getElementById('f-in').hidden=w!=='in'; document.getElementById('f-up').hidden=w!=='up';
   document.getElementById('tab-in').setAttribute('aria-selected',w==='in'); document.getElementById('tab-up').setAttribute('aria-selected',w==='up');

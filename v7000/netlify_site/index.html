@@ -2,532 +2,641 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<!-- Sign-in gate: the estimator is for approved accounts only. -->
-<style id="auth-gate">.app{visibility:hidden}</style>
-<script>
-(function(){
-  var toLogin=function(){ location.replace('/login?next='+encodeURIComponent(location.pathname+location.search)); };
-  var nf=window.fetch.bind(window);
-  // Any paid call that comes back 401 (session expired / account disabled) sends you to sign in.
-  window.fetch=function(u,o){ return nf(u,o).then(function(r){ var s=String(u&&u.url||u); if(r.status===401&&s.indexOf('/.netlify/functions/')>=0&&s.indexOf('/auth')<0) toLogin(); return r; }); };
-  window.restSignOut=function(){ nf('/.netlify/functions/auth',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:'{"action":"logout"}'}).finally(function(){ location.replace('/login'); }); };
-  nf('/.netlify/functions/auth?me',{credentials:'same-origin'}).then(function(r){
-    if(r.status===401) return toLogin();
-    return r.json().then(function(d){
-      window.REST_USER=d.user||null;
-      var show=function(){
-        var g=document.getElementById('auth-gate'); if(g) g.remove();
-        var top=document.querySelector('.tb-top'); if(!top||!d.user) return;
-        var c=document.createElement('div'); c.className='user-chip';
-        var esc=function(x){ return String(x||'').replace(/[&<>"]/g,function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]; }); };
-        c.innerHTML='<span class="uc-name">'+esc(d.user.name||d.user.email)+'</span>'+(d.user.role==='admin'?'<a href="/admin">Admin</a>':'')+'<button type="button" onclick="restSignOut()">Sign out</button>';
-        top.appendChild(c);
-      };
-      if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',show); else show();
-    });
-  }).catch(function(){ var g=document.getElementById('auth-gate'); if(g) g.remove(); });
-})();
-</script>
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-F0WZ7PX9YD"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-F0WZ7PX9YD');
-</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>R Estimator — NYC Plan Takeoff</title>
+<title>R Estimator | NYC plan takeoff and construction cost estimating</title>
+<meta name="description" content="Upload DOB-approved plans. R Estimator reads the schedules, counts the takeoff, prices it at current New York rates, builds labor and schedule, and issues a client-ready proposal. Access by approval.">
+<meta name="theme-color" content="#0B2239">
+<link rel="canonical" href="https://www.restimator.net/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="R Estimator">
+<meta property="og:title" content="R Estimator | NYC plan takeoff and construction cost estimating">
+<meta property="og:description" content="From approved plans to a priced takeoff, labor, schedule and a client-ready proposal, built on current New York rates.">
+<meta property="og:url" content="https://www.restimator.net/">
+<meta name="twitter:card" content="summary">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 58 58'><rect width='58' height='58' rx='13' fill='%230B2239'/><g transform='translate(3.5,12.5) scale(0.47)' fill='none' stroke-linecap='round' stroke-linejoin='round'><path d='M14 6C12 20 13 38 12 62' stroke='%23fff' stroke-width='13'/><path d='M14 6C26 1 58 4 68 20C78 36 66 52 14 52' stroke='%23fff' stroke-width='13'/><path d='M36 52C58 56 80 60 98 64' stroke='%23fff' stroke-width='12'/><path d='M98 64C103 60 104 54 100 50' stroke='%23F2A900' stroke-width='10'/></g></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=20261017-a">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"R Estimator","applicationCategory":"BusinessApplication","operatingSystem":"Web","description":"Construction cost estimating for New York: reads approved building plans, builds the takeoff, labor and schedule, and issues a client-ready proposal.","publisher":{"@type":"Organization","name":"P National Group LLC","url":"https://p-national.com"},"url":"https://www.restimator.net/"}
+</script>
+<style>
+:root{
+  --ink:#0B2239; --ink-2:#123A5E; --blue:#1D6FB8; --blue-dk:#185E9D; --blue-lt:#E8F1F9;
+  --amber:#F2A900; --amber-dk:#C98A00; --green:#0F7A5A; --red:#C0392B;
+  --paper:#F3F6FA; --card:#fff; --line:#D5E0EA; --text:#0E2233; --muted:#5C7086; --on-ink:#A9C2D8;
+  --head:'Barlow Condensed','Inter',sans-serif; --body:'Inter','Helvetica Neue',Arial,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --wrap:1160px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--body);color:var(--text);font-size:16px;line-height:1.6;background:var(--paper);-webkit-font-smoothing:antialiased}
+a{color:var(--blue)}
+:focus-visible{outline:3px solid var(--amber);outline-offset:3px;border-radius:3px}
+.wrap{width:100%;max-width:var(--wrap);margin:0 auto;padding:0 28px}
+[hidden]{display:none!important}
+.skip{position:absolute;left:-999px;top:8px;background:var(--amber);color:var(--ink);padding:8px 14px;font-weight:600;z-index:100;border-radius:6px}
+.skip:focus{left:8px}
+
+/* ---------- type ---------- */
+.h1,.h2{font-family:var(--head);font-weight:700;text-transform:uppercase;letter-spacing:.01em;line-height:1.02;color:var(--ink)}
+.h1{font-size:clamp(44px,6.4vw,78px)}
+.h2{font-size:clamp(32px,4vw,48px)}
+.h3{font-family:var(--head);font-weight:700;font-size:24px;text-transform:uppercase;letter-spacing:.02em;line-height:1.1;color:var(--ink)}
+.rule{height:3px;width:64px;background:var(--amber);border-radius:2px;margin:18px 0 20px}
+.lede{font-size:18px;line-height:1.65;max-width:58ch}
+.sec-intro{max-width:62ch;color:var(--muted);font-size:17px}
+
+/* ---------- buttons ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;font:600 15px/1 var(--body);padding:15px 24px;cursor:pointer;text-decoration:none;transition:background .15s,transform .15s,box-shadow .15s}
+.btn-amber{background:var(--amber);color:var(--ink)}
+.btn-amber:hover{background:#FFB91F;transform:translateY(-1px);box-shadow:0 8px 22px rgba(242,169,0,.35)}
+.btn-blue{background:var(--blue);color:#fff}
+.btn-blue:hover{background:var(--blue-dk)}
+.btn-line{background:transparent;color:#fff;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.4)}
+.btn-line:hover{box-shadow:inset 0 0 0 1.5px #fff}
+.btn:disabled{opacity:.6;cursor:wait}
+
+/* ---------- top bar ---------- */
+.top{position:sticky;top:0;z-index:50;background:rgba(11,34,57,.96);backdrop-filter:blur(10px);border-bottom:1px solid rgba(255,255,255,.1)}
+.top .wrap{display:flex;align-items:center;gap:28px;height:68px}
+.brand{display:flex;align-items:center;gap:12px;text-decoration:none;color:#fff;margin-right:auto}
+.brand b{white-space:nowrap;font-family:var(--head);font-size:26px;letter-spacing:.03em;text-transform:uppercase;line-height:1}
+.nav{display:flex;gap:26px}
+.nav a{color:var(--on-ink);text-decoration:none;font-size:14px;font-weight:500}
+.nav a:hover{color:#fff}
+.top .signin{color:#fff;text-decoration:none;font-size:14px;font-weight:600}
+.top .signin:hover{text-decoration:underline}
+.top .btn{padding:11px 18px;font-size:14px;white-space:nowrap}
+
+/* ---------- hero: a drawing set ---------- */
+.hero{position:relative;color:#fff;background:var(--ink);overflow:hidden;
+  background-image:linear-gradient(rgba(29,111,184,.16) 1px,transparent 1px),linear-gradient(90deg,rgba(29,111,184,.16) 1px,transparent 1px);background-size:26px 26px}
+.hero::after{content:"";position:absolute;inset:16px;border:1px solid rgba(255,255,255,.12);pointer-events:none}
+.hero .wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.08fr);gap:48px;align-items:center;padding-top:76px;padding-bottom:76px}
+.hero .h1{color:#fff}
+.hero .lede{color:var(--on-ink);margin-top:4px}
+.hero-cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px}
+.facts{margin-top:38px;display:grid;gap:0;border-top:1px solid rgba(255,255,255,.18)}
+.facts div{display:grid;grid-template-columns:150px 1fr;gap:16px;padding:11px 0;border-bottom:1px solid rgba(255,255,255,.18);font-size:14px}
+.facts dt{color:#7FA0BD}
+.facts dd{color:#fff}
+
+.sheet{position:relative;background:#fff;border-radius:6px;box-shadow:0 30px 70px rgba(0,0,0,.45);padding:14px 14px 0;color:var(--ink)}
+.sheet svg{display:block;width:100%;height:auto}
+.sheet .titleblock{display:grid;grid-template-columns:1.4fr 1fr 1fr;border-top:1.5px solid var(--ink);margin:10px -14px 0;font-size:11px}
+.sheet .titleblock div{padding:8px 14px;border-right:1px solid var(--line)}
+.sheet .titleblock div:last-child{border-right:0}
+.sheet .titleblock small{display:block;color:var(--muted);font-size:10.5px}
+.sheet .titleblock b{display:block;font-weight:600}
+.count{display:grid;grid-template-columns:repeat(4,1fr);background:var(--ink);color:#fff;margin:0 -14px;font-family:var(--mono);font-size:12px;border-radius:0 0 6px 6px;opacity:0;animation:rise .5s ease 3.1s forwards}
+.count div{padding:10px 14px;border-right:1px solid rgba(255,255,255,.18)}
+.count div:last-child{border-right:0}
+.count small{display:block;color:#7FA0BD;font-size:10.5px}
+.count b{font-weight:500;font-size:15px}
+.plan-note{font-size:12px;color:var(--on-ink);margin-top:12px;text-align:right}
+
+/* plan animation: one scan, things appear as it passes */
+.plan .wall{fill:none;stroke:var(--ink);stroke-width:5;stroke-linejoin:miter}
+.plan .part{stroke:var(--ink);stroke-width:2.2;fill:none}
+.plan .win{fill:#fff;stroke:var(--blue);stroke-width:2}
+.plan .door{fill:none;stroke:var(--ink-2);stroke-width:1.2}
+.plan .dim{stroke:var(--blue);stroke-width:1.2;fill:none}
+.plan text{font-family:var(--mono);fill:var(--ink);font-size:11px}
+.plan .dimtxt{fill:var(--blue);font-size:12px}
+.plan .rm{fill:rgba(29,111,184,.12);stroke:none;opacity:0;animation:fadein .5s ease forwards;animation-delay:var(--d)}
+.plan .tag{opacity:0;animation:fadein .4s ease forwards;animation-delay:var(--d)}
+.plan .tag circle{fill:var(--amber);stroke:var(--ink);stroke-width:1}
+.plan .tag text{font-size:9.5px;font-weight:500;text-anchor:middle}
+.plan .lbl{opacity:0;animation:fadein .4s ease forwards;animation-delay:var(--d);text-anchor:middle}
+.plan .dimg{opacity:0;animation:fadein .5s ease forwards;animation-delay:var(--d)}
+.plan .scan{stroke:var(--amber);stroke-width:2.5;animation:scan 2.6s cubic-bezier(.45,.05,.4,1) .3s forwards;transform:translateX(0);opacity:1}
+.plan .scanglow{fill:url(#glow);animation:scan 2.6s cubic-bezier(.45,.05,.4,1) .3s forwards}
+@keyframes scan{0%{transform:translateX(0);opacity:1}92%{opacity:1}100%{transform:translateX(560px);opacity:0}}
+@keyframes fadein{to{opacity:1}}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ---------- sections ---------- */
+.sec{padding:96px 0}
+.sec--white{background:#fff}
+.sec--ink{background:var(--ink);color:#fff}
+.sec--ink .h2{color:#fff}
+.sec--ink .sec-intro{color:var(--on-ink)}
+.sec-head{margin-bottom:44px}
+[id]{scroll-margin-top:84px}
+
+/* how it works: a true sequence */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);border-top:2px solid var(--ink)}
+.step{padding:26px 28px 6px 0}
+.step + .step{padding-left:28px;border-left:1px solid var(--line)}
+.step .n{font-family:var(--head);font-weight:700;font-size:56px;line-height:1;color:var(--amber)}
+.step .h3{margin:10px 0 10px}
+.step p{color:var(--muted);font-size:15px}
+.step ul{margin:12px 0 0 18px;color:var(--text);font-size:14.5px}
+.step li{margin-top:5px}
+
+/* schedule tables */
+.tbl{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-top:2px solid var(--ink)}
+.tbl caption{text-align:left;padding:0 0 10px;color:var(--muted);font-size:14px}
+.tbl th,.tbl td{padding:15px 18px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);font-size:15px}
+.tbl thead th{background:var(--blue-lt);font-size:13px;font-weight:600;color:var(--ink);border-bottom:1px solid var(--line)}
+.tbl tbody th{width:26%;font-weight:600;color:var(--ink)}
+.tbl td{color:var(--text)}
+.tbl .mono{font-family:var(--mono);font-size:13.5px}
+.tbl tr:last-child th,.tbl tr:last-child td{border-bottom:0}
+
+/* outputs */
+.outs{display:grid;grid-template-columns:1fr 1fr;gap:0 56px;border-top:2px solid var(--ink)}
+.out{padding:20px 0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:210px 1fr;gap:18px}
+.out dt{font-family:var(--head);font-weight:700;font-size:22px;text-transform:uppercase;letter-spacing:.02em;color:var(--ink);line-height:1.1}
+.out dd{color:var(--muted);font-size:15px}
+
+/* comparison */
+.cmp th,.cmp td{font-size:14.5px}
+.cmp thead th:last-child,.cmp tbody td:last-child{background:#FFF8E6}
+.cmp thead th:last-child{background:var(--amber);color:var(--ink)}
+.cmp td{width:20%}
+.yes{font-weight:600;color:var(--green)}
+.part{font-weight:600;color:var(--amber-dk)}
+.no{font-weight:600;color:var(--muted)}
+.cmp td small{display:block;font-weight:400;color:var(--muted);margin-top:2px;font-size:12.5px}
+.cmp-foot{margin-top:14px;color:var(--muted);font-size:13px;max-width:80ch}
+
+/* straight talk */
+.straight{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:56px;align-items:start}
+.limits{list-style:none;border-top:1px solid rgba(255,255,255,.2)}
+.limits li{padding:16px 0;border-bottom:1px solid rgba(255,255,255,.2);color:var(--on-ink);font-size:15.5px}
+.limits b{color:#fff;font-weight:600}
+
+/* who */
+.who{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-top:2px solid var(--ink)}
+.who div{padding:22px 24px 8px 0}
+.who div + div{padding-left:24px;border-left:1px solid var(--line)}
+.who p{color:var(--muted);font-size:14.5px;margin-top:8px}
+
+/* faq */
+.faq{max-width:820px;border-top:2px solid var(--ink)}
+.faq details{border-bottom:1px solid var(--line)}
+.faq summary{list-style:none;cursor:pointer;padding:20px 40px 20px 0;font-weight:600;font-size:17px;color:var(--ink);position:relative}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"+";position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:24px;font-weight:400;color:var(--blue);transition:transform .2s}
+.faq details[open] summary::after{transform:translateY(-50%) rotate(45deg)}
+.faq details p{padding:0 40px 22px 0;color:var(--muted);max-width:66ch}
+
+/* request access */
+.req{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,440px);gap:64px;align-items:center}
+.req .lede{color:var(--on-ink)}
+.req-points{list-style:none;margin-top:26px;border-top:1px solid rgba(255,255,255,.2)}
+.req-points li{padding:12px 0;border-bottom:1px solid rgba(255,255,255,.2);color:#fff;font-size:15px}
+.card{background:var(--card);color:var(--text);border-radius:14px;padding:30px 30px 26px;box-shadow:0 30px 70px rgba(0,0,0,.4)}
+.card .h3{font-size:28px}
+.card .sub{color:var(--muted);font-size:14px;margin:6px 0 6px}
+.card label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px}
+.card label span{font-weight:400;color:var(--muted)}
+.card input{width:100%;font:15px var(--body);color:var(--text);background:#fff;border:1px solid var(--line);border-radius:8px;padding:11px 12px;outline:none;transition:border-color .15s,box-shadow .15s}
+.card input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(29,111,184,.18)}
+.field{position:relative}
+.show{position:absolute;right:8px;top:50%;transform:translateY(-50%);border:0;background:none;font:600 12px var(--body);color:var(--blue);cursor:pointer;padding:6px}
+.card .btn{width:100%;margin-top:22px}
+.msg{display:none;margin-top:16px;font-size:14px;border-radius:8px;padding:11px 13px;line-height:1.5}
+.msg.err{display:block;background:#FDEDEB;color:#9E2B1F;border:1px solid #F5C6C0}
+.msg.ok{display:block;background:#E7F5EF;color:#0B5B43;border:1px solid #BFE3D3}
+.fine{margin-top:16px;font-size:13.5px;color:var(--muted);text-align:center}
+
+/* footer */
+.foot{background:#071729;color:var(--on-ink);font-size:14px}
+.foot .wrap{display:flex;flex-wrap:wrap;gap:16px 32px;align-items:center;justify-content:space-between;padding-top:30px;padding-bottom:30px}
+.foot a{color:#fff;text-decoration:none}
+.foot a:hover{text-decoration:underline}
+.foot nav{display:flex;gap:22px}
+
+/* ---------- responsive ---------- */
+@media (max-width:980px){
+  .nav{display:none}
+  .hero .wrap{grid-template-columns:1fr;padding-top:52px;padding-bottom:56px}
+  .steps,.who{grid-template-columns:1fr}
+  .step,.step + .step,.who div,.who div + div{padding:22px 0 8px 0;border-left:0}
+  .step + .step,.who div + div{border-top:1px solid var(--line)}
+  .outs{grid-template-columns:1fr}
+  .out{grid-template-columns:1fr;gap:4px}
+  .straight,.req{grid-template-columns:1fr;gap:36px}
+  .sec{padding:68px 0}
+}
+@media (max-width:640px){
+  .wrap{padding:0 18px}
+  .top .wrap{gap:14px}
+  .top .signin{display:none}
+  .brand b{font-size:22px}
+  .facts div{grid-template-columns:1fr;gap:2px}
+  .tbl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .tbl-scroll .tbl{min-width:620px}
+  .tbl th,.tbl td{padding:12px 12px}
+  .count{grid-template-columns:repeat(2,1fr)}
+  .count div:nth-child(2){border-right:0}
+  .count div:nth-child(-n+2){border-bottom:1px solid rgba(255,255,255,.18)}
+  .card{padding:24px 20px 22px}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .plan .rm,.plan .tag,.plan .lbl,.plan .dimg,.count{animation:none;opacity:1}
+  .plan .scan,.plan .scanglow{display:none}
+}
+</style>
 </head>
 <body>
-<div class="app">
+<a class="skip" href="#main">Skip to content</a>
 
-<div class="header">
-  <div class="tb-top">
-    <svg class="logo" width="58" height="58" viewBox="0 0 58 58" fill="none" aria-label="R Estimator">
-      <rect x=".75" y=".75" width="56.5" height="56.5" rx="13" fill="#123A5E" stroke="#1D6FB8" stroke-width="1.5"/>
-      <path d="M9 15h40M9 24h40M9 33h40M9 42h40M16 9v40M25 9v40M34 9v40M43 9v40" stroke="#1D6FB8" stroke-opacity=".28" stroke-width="1"/>
-      <g transform="translate(3.5,12.5) scale(0.47)" fill="none" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M 14 6 C 12 20, 13 38, 12 62" stroke="#fff" stroke-width="12"/>
-        <path d="M 14 6 C 26 1, 58 4, 68 20 C 78 36, 66 52, 14 52" stroke="#fff" stroke-width="12"/>
-        <path d="M 36 52 C 58 56, 80 60, 98 64" stroke="#fff" stroke-width="11"/>
-        <path d="M 98 64 C 103 60, 104 54, 100 50" stroke="#F2A900" stroke-width="9"/>
-      </g>
-    </svg>
-    <div class="tb-title">
-      <div class="brand">P National Group</div>
-      <h1>R Estimator</h1>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="R Estimator home">
+      <svg width="36" height="36" viewBox="0 0 58 58" fill="none" aria-hidden="true">
+        <rect x=".75" y=".75" width="56.5" height="56.5" rx="13" fill="#123A5E" stroke="#1D6FB8" stroke-width="1.5"/>
+        <path d="M9 15h40M9 24h40M9 33h40M9 42h40M16 9v40M25 9v40M34 9v40M43 9v40" stroke="#1D6FB8" stroke-opacity=".28" stroke-width="1"/>
+        <g transform="translate(3.5,12.5) scale(0.47)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M 14 6 C 12 20, 13 38, 12 62" stroke="#fff" stroke-width="12"/>
+          <path d="M 14 6 C 26 1, 58 4, 68 20 C 78 36, 66 52, 14 52" stroke="#fff" stroke-width="12"/>
+          <path d="M 36 52 C 58 56, 80 60, 98 64" stroke="#fff" stroke-width="11"/>
+          <path d="M 98 64 C 103 60, 104 54, 100 50" stroke="#F2A900" stroke-width="9"/>
+        </g>
+      </svg>
+      <b>R Estimator</b>
+    </a>
+    <nav class="nav" aria-label="Page sections">
+      <a href="#how">How it works</a>
+      <a href="#scope">What it covers</a>
+      <a href="#why">Why R Estimator</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <a class="signin" href="/login">Sign in</a>
+    <a class="btn btn-amber" href="#request">Request access</a>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ================= HERO ================= -->
+<section class="hero" aria-labelledby="h1">
+  <div class="wrap">
+    <div>
+      <h1 class="h1" id="h1">Price a New York building from its approved plans.</h1>
       <div class="rule"></div>
-      <p>Upload DOB-approved plans. Read the schedules, price the takeoff, cost the labor, and issue a client-ready proposal — built on current New York rates.</p>
-    </div>
-  </div>
-  <div class="tb-strip">
-    <div class="tb-cell"><div class="tb-k">Discipline</div><div class="tb-v">Hard-cost estimate</div></div>
-    <div class="tb-cell"><div class="tb-k">Basis</div><div class="tb-v">Plan schedules + takeoff factors</div></div>
-    <div class="tb-cell"><div class="tb-k">Pricing</div><div class="tb-v"><span class="amber">2025–26</span> NYC market</div></div>
-    <div class="tb-cell"><div class="tb-k">Accuracy / Build</div><div class="tb-v">± 20–30% · <span class="amber">v20260903-0856</span></div></div>
-  </div>
-</div>
-
-<div id="err-banner" class="note err hidden"></div>
-
-<div class="steps">
-  <div class="step-chip active" id="chip-1"><span class="n">1</span> Upload plans</div>
-  <div class="step-chip" id="chip-2"><span class="n">2</span> Verify extracted data</div>
-  <div class="step-chip" id="chip-3"><span class="n">3</span> Takeoff, labor &amp; estimate</div>
-</div>
-
-<!-- STEP 1: UPLOAD -->
-<div id="step-1">
-  <div class="section">
-    <div class="section-title">Upload building plans</div>
-    <div class="drop" id="drop">
-      <div class="big">📐</div>
-      <h3>Drop plan files here or click to browse</h3>
-      <p>PDF or images (PNG/JPG). You can also add a CAD file (.dwg / .dxf) for exact wall lengths. For best results upload the key sheets: cover/zoning, floor plans, and schedules (window, door, MEP equipment).</p>
-      <input type="file" id="fileinput" multiple accept="application/pdf,image/*,.dwg,.dxf" style="display:none">
-    </div>
-    <div class="filelist" id="filelist"></div>
-    <div class="note" style="margin-top:12px">Large files are fine — each plan is automatically compressed in your browser as soon as you add it (you'll see "12 MB → 0.8 MB ✓"), so it stays under the upload limit. For best accuracy, include the schedule sheets (window, door, MEP). Compression needs an internet connection. A copy of every file you add is saved to your account.</div>
-  </div>
-  <div class="actions">
-    <button class="btn btn-primary" id="analyze-btn" onclick="analyzePlans()" disabled>Analyze plans with AI →</button>
-    <button class="btn" onclick="manualEntry()">Skip — enter metrics manually</button>
-    <button class="btn" onclick="loadExample()">Load 124 Washington example</button>
-    <label class="btn" style="cursor:pointer">Load saved estimate<input type="file" accept="application/json" style="display:none" onchange="loadTemplate(this)"></label>
-    <button class="btn" onclick="testBackend()">🔌 Test backend</button>
-  </div>
-
-  <div class="section" style="margin-top:1.25rem">
-    <div class="section-title">Or describe the project (no plans needed)</div>
-    <div class="card">
-      <div class="field">
-        <label>Project description <span class="hint">— e.g. "5-story new multifamily in Queens, 30,000 SF, 24 units, 2 elevators, R-2"</span></label>
-        <input id="prompt-text" placeholder="Describe the building, size, units, borough, work type…">
+      <p class="lede">R Estimator reads the drawing set, counts what is on the sheets, prices the work at current New York rates, and hands you a client-ready proposal. Every number stays editable.</p>
+      <div class="hero-cta">
+        <a class="btn btn-amber" href="#request">Request access</a>
+        <a class="btn btn-line" href="/login">Sign in</a>
       </div>
-      <div class="actions" style="margin-top:.75rem">
-        <button class="btn" onclick="estimateFromPrompt()">Generate estimate from description →</button>
-      </div>
+      <dl class="facts">
+        <div><dt>Where</dt><dd>NYC's five boroughs and New Jersey counties</dd></div>
+        <div><dt>Pricing basis</dt><dd>2025–26 New York market, with optional BLS price-index adjustment</dd></div>
+        <div><dt>Pre-bid accuracy</dt><dd>Plus or minus 20–30%, stated on every estimate</dd></div>
+      </dl>
     </div>
-  </div>
-</div>
 
-<!-- ANALYZING -->
-<div id="analyzing" class="hidden">
-  <div class="progress">
-    <span class="spinner" style="border-color:#534AB7;border-top-color:transparent"></span>
-    <div class="msg" id="analyze-msg">Reading your plans…</div>
-    <div class="sub" id="analyze-sub">Extracting building metrics, unit counts, and schedule quantities</div>
-  </div>
-</div>
-
-<!-- STEP 2: VERIFY -->
-<div id="step-2" class="hidden">
-  <div class="note" id="extract-note"><span class="ai-badge">Review</span> &nbsp;Review the values below and correct anything that’s off — every field is editable.</div>
-
-  <div class="section">
-    <div class="section-title">Project identification</div>
-    <div class="card">
-      <div class="grid3">
-        <div class="field ai"><label>Project name / address</label><input id="m-name"></div>
-        <div class="field ai"><label>DOB Job #</label><input id="m-job"></div>
-        <div class="field"><label>Location (borough / NJ county)</label>
-          <select id="m-borough" onchange="recalc()">
-            <optgroup label="New York City">
-            <option value="1.0">Manhattan</option><option value="0.92">Brooklyn</option>
-            <option value="0.90">Queens</option><option value="0.86">Bronx</option><option value="0.84">Staten Island</option>
-            </optgroup>
-            <optgroup label="New Jersey"><option value="0.83" data-state="NJ">Hudson County, NJ</option><option value="0.825" data-state="NJ">Essex County, NJ</option><option value="0.82" data-state="NJ">Union County, NJ</option><option value="0.815" data-state="NJ">Bergen County, NJ</option><option value="0.81" data-state="NJ">Passaic County, NJ</option><option value="0.805" data-state="NJ">Middlesex County, NJ</option><option value="0.80" data-state="NJ">Morris County, NJ</option><option value="0.795" data-state="NJ">Somerset County, NJ</option><option value="0.79" data-state="NJ">Monmouth County, NJ</option><option value="0.785" data-state="NJ">Mercer County, NJ</option><option value="0.78" data-state="NJ">Ocean County, NJ</option><option value="0.775" data-state="NJ">Camden County, NJ</option><option value="0.772" data-state="NJ">Burlington County, NJ</option><option value="0.765" data-state="NJ">Other NJ county County, NJ</option></optgroup>
-          </select>
+    <div>
+      <figure class="sheet" aria-label="Illustration: a sample floor plan being measured">
+        <svg class="plan" viewBox="0 0 640 392" role="img" aria-label="A sample apartment floor plan. A scan line crosses it and the rooms, windows and dimensions are picked up.">
+          <defs>
+            <linearGradient id="glow" x1="0" x2="1"><stop offset="0" stop-color="#F2A900" stop-opacity="0"/><stop offset="1" stop-color="#F2A900" stop-opacity=".28"/></linearGradient>
+          </defs>
+          <!-- rooms picked up as the scan passes -->
+          <rect class="rm" style="--d:.7s" x="42" y="42" width="188" height="138"/>
+          <rect class="rm" style="--d:1.2s" x="232" y="42" width="108" height="138"/>
+          <rect class="rm" style="--d:1.6s" x="342" y="42" width="108" height="138"/>
+          <rect class="rm" style="--d:2.0s" x="452" y="42" width="146" height="138"/>
+          <rect class="rm" style="--d:.9s" x="42" y="222" width="90" height="116"/>
+          <rect class="rm" style="--d:1.1s" x="134" y="222" width="116" height="116"/>
+          <rect class="rm" style="--d:1.9s" x="382" y="222" width="216" height="116"/>
+          <!-- walls -->
+          <rect class="wall" x="40" y="40" width="560" height="300"/>
+          <g class="part">
+            <line x1="40" y1="182" x2="600" y2="182"/>
+            <line x1="40" y1="220" x2="600" y2="220"/>
+            <line x1="231" y1="40" x2="231" y2="182"/>
+            <line x1="341" y1="40" x2="341" y2="182"/>
+            <line x1="451" y1="40" x2="451" y2="182"/>
+            <line x1="133" y1="220" x2="133" y2="340"/>
+            <line x1="251" y1="220" x2="251" y2="340"/>
+            <line x1="381" y1="220" x2="381" y2="340"/>
+            <line x1="316" y1="220" x2="316" y2="340"/>
+          </g>
+          <!-- windows in the exterior wall -->
+          <g class="win">
+            <rect x="82" y="36" width="64" height="8"/><rect x="262" y="36" width="52" height="8"/>
+            <rect x="372" y="36" width="52" height="8"/><rect x="490" y="36" width="70" height="8"/>
+            <rect x="82" y="336" width="40" height="8"/><rect x="160" y="336" width="64" height="8"/><rect x="430" y="336" width="130" height="8"/>
+            <rect x="596" y="250" width="8" height="60"/>
+          </g>
+          <!-- doors -->
+          <g class="door">
+            <path d="M180 182a28 28 0 0 1 28 28M180 182v28"/>
+            <path d="M262 182a28 28 0 0 0 28 28M290 182v28" transform="translate(0 0)"/>
+            <path d="M392 182a28 28 0 0 1 28 28M392 182v28"/>
+            <path d="M510 182a28 28 0 0 1 28 28M510 182v28"/>
+            <path d="M133 270a24 24 0 0 0 24 -24M133 246h24" transform="translate(0 0)"/>
+            <path d="M381 262a24 24 0 0 1 24 -24M381 238h24"/>
+          </g>
+          <!-- room labels -->
+          <g>
+            <text class="lbl" style="--d:.9s" x="136" y="116">Living</text><text class="lbl" style="--d:.9s" x="136" y="132">426 sf</text>
+            <text class="lbl" style="--d:1.35s" x="286" y="116">Bed 1</text><text class="lbl" style="--d:1.35s" x="286" y="132">142 sf</text>
+            <text class="lbl" style="--d:1.75s" x="396" y="116">Bed 2</text><text class="lbl" style="--d:1.75s" x="396" y="132">138 sf</text>
+            <text class="lbl" style="--d:2.1s" x="525" y="116">Kitchen</text><text class="lbl" style="--d:2.1s" x="525" y="132">164 sf</text>
+            <text class="lbl" style="--d:1.0s" x="87" y="276">Bath</text><text class="lbl" style="--d:1.0s" x="87" y="292">44 sf</text>
+            <text class="lbl" style="--d:1.2s" x="192" y="276">Bed 3</text><text class="lbl" style="--d:1.2s" x="192" y="292">131 sf</text>
+            <text class="lbl" style="--d:2.0s" x="490" y="276">Living</text><text class="lbl" style="--d:2.0s" x="490" y="292">302 sf</text>
+            <text class="lbl" style="--d:1.6s" x="283" y="276">Stair</text>
+            <text class="lbl" style="--d:1.7s" x="348" y="276">Elev.</text>
+          </g>
+          <!-- window tags -->
+          <g class="tag" style="--d:.8s"><circle cx="114" cy="62" r="9"/><text x="114" y="65">W1</text></g>
+          <g class="tag" style="--d:1.3s"><circle cx="288" cy="62" r="9"/><text x="288" y="65">W2</text></g>
+          <g class="tag" style="--d:1.7s"><circle cx="398" cy="62" r="9"/><text x="398" y="65">W3</text></g>
+          <g class="tag" style="--d:2.1s"><circle cx="525" cy="62" r="9"/><text x="525" y="65">W4</text></g>
+          <g class="tag" style="--d:1.1s"><circle cx="102" cy="318" r="9"/><text x="102" y="321">W5</text></g>
+          <g class="tag" style="--d:1.3s"><circle cx="192" cy="318" r="9"/><text x="192" y="321">W6</text></g>
+          <g class="tag" style="--d:2.2s"><circle cx="495" cy="318" r="9"/><text x="495" y="321">W7</text></g>
+          <!-- dimensions -->
+          <g class="dimg" style="--d:2.4s">
+            <g class="dim"><line x1="40" y1="20" x2="600" y2="20"/><line x1="40" y1="14" x2="40" y2="26"/><line x1="600" y1="14" x2="600" y2="26"/></g>
+            <text class="dimtxt" x="320" y="14" text-anchor="middle">56'-0"</text>
+            <g class="dim"><line x1="20" y1="40" x2="20" y2="340"/><line x1="14" y1="40" x2="26" y2="40"/><line x1="14" y1="340" x2="26" y2="340"/></g>
+            <text class="dimtxt" x="12" y="190" transform="rotate(-90 12 190)" text-anchor="middle">30'-0"</text>
+          </g>
+          <!-- scan line -->
+          <g class="scanner">
+            <rect class="scanglow" x="-30" y="12" width="70" height="340"/>
+            <line class="scan" x1="40" y1="12" x2="40" y2="352"/>
+          </g>
+        </svg>
+        <div class="count" aria-label="Counted from the sheets">
+          <div><small>Windows</small><b>7</b></div>
+          <div><small>Doors</small><b>6</b></div>
+          <div><small>Rooms</small><b>9</b></div>
+          <div><small>Net area</small><b>1,347 sf</b></div>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">Building metrics</div>
-    <div class="card">
-      <div class="grid4">
-        <div class="field ai"><label>Total GFA (SF) <span class="hint">— auto-derives from footprint × floors if blank</span></label><input id="m-gfa" type="number" oninput="recalc()"></div>
-        <div class="field ai"><label>Net residential SF</label><input id="m-nsf" type="number" oninput="recalc()"></div>
-        <div class="field ai"><label>Footprint / floor (SF)</label><input id="m-footprint" type="number" oninput="recalc()"></div>
-        <div class="field ai"><label># Floors</label><input id="m-floors" type="number" oninput="recalc()"></div>
-        <div class="field ai"><label># Dwelling units</label><input id="m-units" type="number" oninput="recalc()"></div>
-        <div class="field ai"><label>Floor-to-floor (ft)</label><input id="m-f2f" type="number" step="0.5" oninput="recalc()"></div>
-        <div class="field ai"><label>Perimeter (LF)</label><input id="m-perim" type="number" oninput="recalc()"></div>
-        <div class="field"><label>Cellar?</label><select id="m-cellar" onchange="recalc()"><option value="1">Yes</option><option value="0">No</option></select></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">Excavation &amp; foundation support</div>
-    <div class="card">
-      <div class="grid4">
-        <div class="field ai"><label>Excavation depth (ft) <span class="hint">— blank = 12 w/ cellar, 4 without</span></label><input id="m-exc-depth" type="number" step="0.5" placeholder="auto" oninput="recalc()"></div>
-        <div class="field ai"><label>SOE / shoring length (LF) <span class="hint">— blank = full perimeter if cellar</span></label><input id="m-soe-lf" type="number" placeholder="auto" oninput="recalc()"></div>
-        <div class="field ai"><label>Underpinning (LF of neighbor walls) <span class="hint">— blank = ½ perimeter if cellar</span></label><input id="m-underpin-lf" type="number" placeholder="auto" oninput="recalc()"></div>
-        <div class="field ai"><label>Piles (count) <span class="hint">— from foundation/pile plan</span></label><input id="m-piles" type="number" placeholder="0" oninput="recalc()"></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">Net floor area by floor</div>
-    <div class="card">
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-        <input id="qf-text" class="cell" style="flex:1;min-width:260px;text-align:left" placeholder="Quick entry:  cellar 9604, 1 9604, 2 9604, 3-8 9604, 9-10 4725">
-        <button class="btn" type="button" onclick="applyQuickFloors()">Apply floor areas</button>
-        <span class="hint">gross SF per floor. Sets floors, GFA, NSF (85%) and footprint</span>
-      </div>
-      <div style="overflow-x:auto">
-        <table id="floor-table">
-          <thead><tr>
-            <th>Floor</th><th class="num">Gross SF <span class="hint" style="color:#A9C2D8;text-transform:none;letter-spacing:0">from plans</span></th>
-            <th class="num">Net SF <span class="hint" style="color:#A9C2D8;text-transform:none;letter-spacing:0">from plans</span></th>
-            <th class="num">Efficiency</th><th></th>
-          </tr></thead>
-          <tbody id="floor-body"></tbody>
-          <tfoot>
-            <tr class="subtot">
-              <td>TOTALS</td>
-              <td class="num" id="fl-tot-gross">&#8212;</td>
-              <td class="num" id="fl-tot-net">&#8212;</td>
-              <td class="num"><strong id="fl-eff">&#8212;</strong></td><td></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-      <div class="actions" style="margin-top:.6rem">
-        <button class="btn" onclick="createFloorRows()">&#8862; Create a row per floor</button>
-        <button class="btn" onclick="addFloorRow()">+ Add floor</button>
-      </div>
-      <div class="note" style="margin-top:.6rem"><strong>Measured values only — nothing is estimated.</strong> Gross and net per floor come from the plan&#8217;s floor-area / zoning analysis table (the AI reads that table when it appears in the uploaded set) or your own figures. Efficiency is computed from the numbers, never assumed. Totals update Total GFA and Net residential SF above only once <strong>every</strong> floor has a value &#8212; partial entry never overwrites your totals.</div>
-    </div>
-
-    <div class="section-title">Type &amp; scope</div>
-    <div class="card">
-      <div class="grid4">
-        <div class="field ai"><label>Work type</label>
-          <select id="m-worktype" onchange="recalc()">
-            <option value="new">New construction</option>
-            <option value="conversion">Adaptive reuse / conversion</option>
-            <option value="gut">Full gut renovation</option>
-            <option value="partial">Partial renovation</option>
-          </select>
+        <div class="titleblock">
+          <div><small>Sheet</small><b>Sample floor plan</b></div>
+          <div><small>Read by</small><b>R Estimator</b></div>
+          <div><small>Status</small><b>Illustration</b></div>
         </div>
-        <div class="field ai"><label>Construction type</label>
-          <select id="m-ctype" onchange="recalc()">
-            <option value="1.15">I-A fireproof</option><option value="1.10">I-B</option>
-            <option value="1.0">II-A</option><option value="0.96">II-B</option>
-            <option value="0.93">III-A masonry/timber</option><option value="0.90">III-B</option>
-            <option value="0.85">V wood frame</option>
-          </select>
-        </div>
-        <div class="field ai"><label>Occupancy</label>
-          <select id="m-occ" onchange="recalc()">
-            <option value="1.0">R-2 multifamily</option><option value="0.88">R-3</option>
-            <option value="1.0">B office</option><option value="1.25">A assembly</option>
-            <option value="0.92">M retail</option><option value="1.42">I institutional</option>
-          </select>
-        </div>
-        <div class="field"><label>Inner court / curtain wall?</label><select id="m-court" onchange="recalc()"><option value="0">No</option><option value="1">Yes</option></select></div>
+      </figure>
+      <p class="plan-note">An illustration of the idea, not a real project.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= HOW IT WORKS ================= -->
+<section class="sec" id="how" aria-labelledby="how-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="h2" id="how-h">Three steps from drawings to a number</h2>
+      <div class="rule"></div>
+      <p class="sec-intro">No setup and no templates to build. Bring the plans you already have.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="n">1</div>
+        <h3 class="h3">Upload your plans</h3>
+        <p>Drop in the DOB-approved set as PDF or images. Add a CAD file (.dwg or .dxf) when you want exact wall lengths.</p>
+        <ul>
+          <li>Large files are fine. Each plan is compressed in your browser first.</li>
+          <li>Best results come from the cover and zoning sheet, floor plans and the window, door and MEP schedules.</li>
+          <li>No plans yet? Describe the project in a sentence and start from that.</li>
+        </ul>
+      </div>
+      <div class="step">
+        <div class="n">2</div>
+        <h3 class="h3">Check what it read</h3>
+        <p>Floor areas, units, floors, perimeter and schedule counts land in one review screen. Fix anything that is off before it is priced.</p>
+        <ul>
+          <li>Every field is editable.</li>
+          <li>Gross and net area per floor come from the plan's area table or your own figures.</li>
+          <li>Nothing is assumed. A missing value is shown as missing.</li>
+        </ul>
+      </div>
+      <div class="step">
+        <div class="n">3</div>
+        <h3 class="h3">Get the estimate</h3>
+        <p>A line-by-line takeoff with labor, crews and a timeline, then your overhead, profit, contingency and margin on top.</p>
+        <ul>
+          <li>Edit any quantity or unit rate and the totals update at once.</li>
+          <li>Download Excel, print, or issue a client proposal.</li>
+          <li>Save the estimate and reopen it later.</li>
+        </ul>
       </div>
     </div>
   </div>
+</section>
 
-  <div class="section">
-    <div class="section-title">Schedule counts (from plan schedules)</div>
+<!-- ================= WHAT IT COVERS ================= -->
+<section class="sec sec--white" id="scope" aria-labelledby="scope-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="h2" id="scope-h">What it reads, counts and prices</h2>
+      <div class="rule"></div>
+      <p class="sec-intro">Set out the way a drawing set is: one row per thing the estimate depends on.</p>
+    </div>
+    <div class="tbl-scroll">
+    <table class="tbl">
+      <caption>Schedule of inputs and how R Estimator handles each</caption>
+      <thead><tr><th scope="col">Item</th><th scope="col">What it does</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Building metrics</th><td>Total and net floor area, footprint per floor, number of floors and dwelling units, floor-to-floor height and perimeter. Area per floor is read from the plan's floor-area table.</td></tr>
+        <tr><th scope="row">Schedule counts</th><td>Windows, entry doors, stair and fire doors, interior doors, rooftop condensers, indoor HVAC units, exhaust fans and elevators, counted from the plan schedules.</td></tr>
+        <tr><th scope="row">CAD walls</th><td>Add a .dwg or .dxf file to measure wall lengths exactly instead of deriving them.</td></tr>
+        <tr><th scope="row">Excavation and foundation</th><td>Cellar, excavation depth, support of excavation, underpinning of neighboring walls and pile counts, each with a sensible default you can override.</td></tr>
+        <tr><th scope="row">Work type</th><td>New construction, adaptive reuse or conversion, full gut renovation and partial renovation.</td></tr>
+        <tr><th scope="row">Construction and occupancy</th><td>Construction classes I-A through V. Occupancies R-2, R-3, B, A, M and I.</td></tr>
+        <tr><th scope="row">Takeoff</th><td>Material quantities by division: demolition, masonry, metals, wood, thermal and moisture, doors and windows, finishes, kitchens and baths, conveying, plumbing and fire protection, HVAC, electrical, plus custom lines. Add, exclude or delete any line.</td></tr>
+        <tr><th scope="row">Labor and schedule</th><td>Man-hours, crew size and work-days per division, a project timeline, and a loaded trade wage table you can edit. Open-shop rates by default, union rates one click away.</td></tr>
+        <tr><th scope="row">Pricing basis</th><td>Choose market pricing (subcontracted, with GC markup), self-performed pricing from the P National pro forma, or your own past budgets imported as the price book. Optionally adjust materials to the latest BLS producer price index.</td></tr>
+        <tr><th scope="row">Margin</th><td>General conditions, GC overhead and profit, contingency and a target margin, ending in a sell price at that margin.</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+
+<!-- ================= WHAT YOU GET ================= -->
+<section class="sec" aria-labelledby="out-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="h2" id="out-h">What you can hand to someone else</h2>
+      <div class="rule"></div>
+      <p class="sec-intro">The estimate does not stay trapped on a screen.</p>
+    </div>
+    <dl class="outs">
+      <div class="out"><dt>Excel estimate</dt><dd>Download our estimate or the market estimate as a workbook.</dd></div>
+      <div class="out"><dt>Client proposal</dt><dd>A proposal you can send as is, built from the same numbers.</dd></div>
+      <div class="out"><dt>Appraisal report</dt><dd>A report view of the project for lenders and valuation.</dd></div>
+      <div class="out"><dt>Materials and specs</dt><dd>The quantities and specifications behind each line.</dd></div>
+      <div class="out"><dt>Electrical breakdown</dt><dd>The electrical scope broken out on its own.</dd></div>
+      <div class="out"><dt>Plumbing breakdown</dt><dd>The plumbing scope broken out on its own.</dd></div>
+      <div class="out"><dt>3D rendering</dt><dd>A rendering of the building to go with the numbers.</dd></div>
+      <div class="out"><dt>Deal Builder</dt><dd>Send the hard cost straight into a Deal Builder pro forma.</dd></div>
+    </dl>
+  </div>
+</section>
+
+<!-- ================= WHY ================= -->
+<section class="sec sec--white" id="why" aria-labelledby="why-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="h2" id="why-h">Why it is the better tool for New York work</h2>
+      <div class="rule"></div>
+      <p class="sec-intro">General estimating software is built for everywhere, so it prices a New York building like any other. R Estimator was built for one market and one kind of drawing set.</p>
+    </div>
+    <div class="tbl-scroll">
+    <table class="tbl cmp">
+      <caption>A general comparison by approach, not by product</caption>
+      <thead><tr><th scope="col">What matters on a New York job</th><th scope="col">General estimating software</th><th scope="col">Spreadsheets and manual takeoff</th><th scope="col">R Estimator</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Reads DOB-approved drawing sets and their schedules</th><td><span class="part">Partly</span><small>Often generic plan reading</small></td><td><span class="no">By hand</span></td><td><span class="yes">Built in</span></td></tr>
+        <tr><th scope="row">New York loaded wages, open-shop and union</th><td><span class="part">Partly</span><small>Usually national rates</small></td><td><span class="no">You build it</span></td><td><span class="yes">Built in, editable</span></td></tr>
+        <tr><th scope="row">Cellars, support of excavation, underpinning and piles</th><td><span class="no">Rarely</span></td><td><span class="no">You build it</span></td><td><span class="yes">Built in</span></td></tr>
+        <tr><th scope="row">Takeoff, labor, schedule and proposal in one place</th><td><span class="part">Partly</span></td><td><span class="no">Separate files</span></td><td><span class="yes">One workflow</span></td></tr>
+        <tr><th scope="row">Every quantity and rate editable, nothing hidden</th><td><span class="part">Varies</span></td><td><span class="yes">Yes</span></td><td><span class="yes">Yes</span></td></tr>
+        <tr><th scope="row">Your own past budgets as the price book</th><td><span class="part">Varies</span></td><td><span class="yes">Yes</span></td><td><span class="yes">Import them</span></td></tr>
+        <tr><th scope="row">Feeds a development pro forma</th><td><span class="no">Rarely</span></td><td><span class="no">Copy and paste</span></td><td><span class="yes">Sends to Deal Builder</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="cmp-foot">This compares approaches in general. Individual products differ, so check any tool against the drawing sets you actually price.</p>
+  </div>
+</section>
+
+<!-- ================= STRAIGHT TALK ================= -->
+<section class="sec sec--ink" aria-labelledby="st-h">
+  <div class="wrap straight">
+    <div>
+      <h2 class="h2" id="st-h">Know what you are getting</h2>
+      <div class="rule"></div>
+      <p class="sec-intro">It is a pre-bid tool, and it says so on every estimate. That is why you can trust the rest.</p>
+    </div>
+    <ul class="limits">
+      <li><b>Accuracy is plus or minus 20–30% before bid.</b> Schedule items are counted. Area and length materials such as drywall, partitions, paint and insulation are derived with standard takeoff factors.</li>
+      <li><b>Soft costs are not included.</b> Design fees, DOB filing and inspection fees, financing, insurance and furniture are outside the estimate.</li>
+      <li><b>Check it against the dimensioned drawings</b> before you bid. The review screen is there so you can correct what it read.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= WHO ================= -->
+<section class="sec" aria-labelledby="who-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="h2" id="who-h">Who uses it</h2>
+      <div class="rule"></div>
+    </div>
+    <div class="who">
+      <div><h3 class="h3">Developers</h3><p>Test a site, a conversion or a ground-up scheme against real drawings before you commit capital.</p></div>
+      <div><h3 class="h3">General contractors</h3><p>Get to a defensible number fast, with labor hours and a schedule behind it.</p></div>
+      <div><h3 class="h3">Lenders and owner's reps</h3><p>Sanity-check a budget against the plans it claims to price.</p></div>
+      <div><h3 class="h3">Appraisers and advisors</h3><p>Produce a cost view and a report from the same set of numbers.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= FAQ ================= -->
+<section class="sec sec--white" id="faq" aria-labelledby="faq-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="h2" id="faq-h">Questions</h2>
+      <div class="rule"></div>
+    </div>
+    <div class="faq">
+      <details><summary>What files can I upload?</summary><p>PDF or images (PNG or JPG). You can also add a CAD file, .dwg or .dxf, for exact wall lengths. For the best result include the cover and zoning sheet, the floor plans and the window, door and MEP schedules.</p></details>
+      <details><summary>Can I start without plans?</summary><p>Yes. Describe the project, for example a five-story multifamily in Queens with 24 units and two elevators, and generate a first estimate from the description. You can also enter the building metrics by hand.</p></details>
+      <details><summary>How accurate is it?</summary><p>Plus or minus 20–30% before bid, which is stated on every estimate. Items on the plan schedules are counted. Area and length materials are derived with standard takeoff factors. Verify against the dimensioned drawings before you bid.</p></details>
+      <details><summary>Where do the prices come from?</summary><p>A 2025–26 New York market price table, which you can adjust to the latest BLS producer price index. You can also import your own past budgets and price from those instead. Loaded trade wages are editable, with open-shop and union options.</p></details>
+      <details><summary>Which areas does it cover?</summary><p>The five boroughs of New York City and New Jersey counties, including Hudson, Essex, Union, Bergen, Passaic, Middlesex, Morris, Somerset, Monmouth, Mercer, Ocean, Camden and Burlington.</p></details>
+      <details><summary>What is not in the estimate?</summary><p>Soft costs: design fees, DOB filing and inspection fees, financing, insurance and furniture, fixtures and equipment.</p></details>
+      <details><summary>Who can get in?</summary><p>Access is by approval. P National Group reviews each request. Once you are approved, sign in with the email and password you chose when you requested access.</p></details>
+      <details><summary>What happens to my plans?</summary><p>A copy of every file you add is saved to your account so you can reopen your estimates later.</p></details>
+    </div>
+  </div>
+</section>
+
+<!-- ================= REQUEST ACCESS ================= -->
+<section class="sec sec--ink" id="request" aria-labelledby="req-h">
+  <div class="wrap req">
+    <div>
+      <h2 class="h2" id="req-h">Request access</h2>
+      <div class="rule"></div>
+      <p class="lede">Tell us who you are and we will review your request. Once you are approved you can sign in and run your first estimate.</p>
+      <ul class="req-points">
+        <li>Each account is approved by P National Group.</li>
+        <li>You choose your own password now.</li>
+        <li>Sign in with the same email once approved.</li>
+      </ul>
+    </div>
     <div class="card">
-      <div class="grid4">
-        <div class="field ai"><label>Windows (total)</label><input id="m-windows" type="number" oninput="recalc()"></div>
-        <div class="field ai"><label>Entry doors</label><input id="m-doors-entry" type="number" oninput="recalc()"></div>
-        <div class="field ai"><label>Stair/fire doors</label><input id="m-doors-stair" type="number" oninput="recalc()"></div>
-        <div class="field ai"><label>Interior doors</label><input id="m-doors-int" type="number" oninput="recalc()"></div>
-        <div class="field ai"><label>HVAC condensers (roof)</label><input id="m-hvac-cu" type="number" oninput="recalc()"></div>
-        <div class="field ai"><label>HVAC indoor units</label><input id="m-hvac-ah" type="number" oninput="recalc()"></div>
-        <div class="field ai"><label>Exhaust fans (kit+bath)</label><input id="m-exhaust" type="number" oninput="recalc()"></div>
-        <div class="field ai"><label>Elevators</label><input id="m-elev" type="number" oninput="recalc()"></div>
-      </div>
+      <form id="f-req" novalidate>
+        <h3 class="h3">Request an account</h3>
+        <p class="sub">It takes under a minute.</p>
+        <label for="r-name">Full name</label>
+        <input id="r-name" name="name" autocomplete="name" required>
+        <label for="r-company">Company <span>(optional)</span></label>
+        <input id="r-company" name="company" autocomplete="organization">
+        <label for="r-email">Email</label>
+        <input id="r-email" name="email" type="email" autocomplete="email" required>
+        <label for="r-pw">Password <span>(8 or more characters)</span></label>
+        <div class="field"><input id="r-pw" name="password" type="password" autocomplete="new-password" minlength="8" required><button type="button" class="show" id="r-show" aria-label="Show password">Show</button></div>
+        <button class="btn btn-blue" id="r-btn" type="submit">Request access</button>
+        <div class="msg" id="r-msg" role="alert"></div>
+        <p class="fine">Already approved? <a href="/login">Sign in</a></p>
+      </form>
     </div>
   </div>
+</section>
 
-  <div class="actions">
-    <button class="btn" onclick="backToUpload()">← Re-upload</button>
-    <div id="prov-block" class="note err hidden" style="margin-bottom:.6rem"></div>
-    <button class="btn btn-primary" onclick="goToResults()">Run takeoff →</button>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div>R Estimator is a product of <a href="https://p-national.com">P National Group LLC</a>, Brooklyn, New York.</div>
+    <nav aria-label="Footer">
+      <a href="/login">Sign in</a>
+      <a href="#request">Request access</a>
+      <a href="mailto:info@p-national.com">Contact</a>
+    </nav>
   </div>
-</div>
+</footer>
 
-<!-- STEP 3: RESULTS -->
-<div id="step-3" class="hidden">
-  <div class="summary-grid">
-    <div class="metric"><div class="metric-label">Total hard cost</div><div class="metric-value" id="s-total">—</div><div class="metric-sub">incl. GC O&amp;P + contingency</div></div>
-    <div class="metric"><div class="metric-label">Cost / SF (GFA)</div><div class="metric-value" id="s-psf">—</div><div class="metric-sub" id="s-bench">—</div></div>
-    <div class="metric"><div class="metric-label">Cost / unit</div><div class="metric-value" id="s-unit">—</div><div class="metric-sub" id="s-units">—</div></div>
-    <div class="metric"><div class="metric-label">Line items</div><div class="metric-value" id="s-lines">—</div><div class="metric-sub">across divisions</div></div>
-  </div>
-
-  <div class="actions" style="margin-top:0;margin-bottom:1rem">
-    <button class="btn btn-green" onclick="exportExcel()">⬇ Our estimate (Excel)</button>
-    <button class="btn" onclick="exportExcel('market')" style="border-color:var(--green);color:var(--green);font-weight:600">⬇ Market estimate (Excel)</button>
-    <button class="btn" onclick="sendToDealBuilder()" style="background:#1a7f5a;color:#fff;border-color:#1a7f5a;font-weight:600" title="Send all hard costs, unit counts &amp; building metrics to Deal Builder">🔗 Send to Deal Builder →</button>
-    <button class="btn" onclick="openRendering()" style="background:#1a3a6b;color:#fff;border-color:#1a3a6b;font-weight:600" title="Generate 3D rendering from building metrics">🏗 3D Rendering</button>
-    <button class="btn" onclick="backToVerify()">← Adjust inputs</button>
-    <button class="btn btn-primary" onclick="buildProposal()">📄 Client proposal</button>
-    <button class="btn" onclick="openAppraisal()" title="Cost, sales comparison and income approaches reconciled into one opinion of value">🏛 Appraisal report</button>
-    <button class="btn" onclick="openSpecs()">📋 Materials &amp; specs</button>
-    <button class="btn" onclick="openElectrical()">⚡ Electrical breakdown</button>
-    <button class="btn" onclick="openPlumbing()">🚿 Plumbing breakdown</button>
-    <button class="btn" onclick="saveTemplate()">💾 Save estimate</button>
-    <button class="btn" onclick="resetEstimate()">↺ Reset edits</button>
-    <button class="btn" onclick="window.print()">🖨 Print</button>
-  </div>
-
-  <div class="section">
-    <div id="unreadable-warn" class="note err hidden" style="margin-bottom:.75rem"></div>
-    <div id="assumptions" class="note hidden" style="margin-bottom:.75rem;border-left:4px solid #b26a00"></div>
-
-    <div id="nsf-warn" class="note warn hidden"><strong>Net SF is not set.</strong> The plans didn&#8217;t state it and nothing is assumed &#8212; net-area-based lines (finishes, interior demo) are priced at 0 until you enter Net SF or complete the floor-by-floor table.</div>
-
-    <div class="section-title">Material quantity takeoff</div>
-    <div style="overflow-x:auto">
-      <table id="takeoff-table">
-        <thead><tr>
-          <th>Material / work item</th><th>Quantity basis</th>
-          <th class="num">Qty</th><th>Unit</th><th class="num">Unit $</th>
-          <th class="num">Material $</th><th class="num">Labor $</th><th class="num">Extended $</th>
-        </tr></thead>
-        <tbody id="takeoff-body"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="card" style="margin-top:.85rem">
-    <div class="section-title" style="margin-bottom:.6rem">Add a line item</div>
-    <div class="grid4">
-      <div class="field"><label>Division</label>
-        <select id="cr-div">
-          <option>02 · Demolition</option><option>04 · Masonry</option><option>05 · Metals</option>
-          <option>06 · Wood &amp; Timber</option><option>07 · Thermal &amp; Moisture</option>
-          <option>08 · Openings (Doors &amp; Windows)</option><option>09 · Finishes</option>
-          <option>11 · Kitchens, Baths &amp; Appliances</option><option>14 · Conveying</option>
-          <option>21/22 · Plumbing &amp; Fire Protection</option><option>23 · HVAC / Mechanical</option>
-          <option>26 · Electrical</option><option selected>99 · Other / Custom</option>
-        </select>
-      </div>
-      <div class="field"><label>Description</label><input id="cr-name" placeholder="e.g. Rooftop deck"></div>
-      <div class="field"><label>Qty</label><input id="cr-qty" type="number" step="any"></div>
-      <div class="field"><label>Unit</label>
-        <select id="cr-unit"><option>LS</option><option>SF</option><option>LF</option><option>EA</option><option>CY</option></select>
-      </div>
-      <div class="field"><label>Unit $</label><input id="cr-price" type="number" step="any"></div>
-      <div class="field"><label>Man-hrs / unit <span class="hint">optional</span></label><input id="cr-mh" type="number" step="any"></div>
-      <div class="field"><label>Trade</label>
-        <select id="cr-trade">
-          <option value="laborer">Laborer</option><option value="carpenter">Carpenter</option>
-          <option value="concrete">Concrete</option><option value="mason">Mason</option>
-          <option value="drywall">Drywall</option><option value="painter">Painter</option>
-          <option value="plumber">Plumber</option><option value="electrician">Electrician</option>
-          <option value="hvac">HVAC</option><option value="roofer">Roofer</option>
-        </select>
-      </div>
-      <div class="field"><label>&nbsp;</label><button class="btn btn-primary" onclick="addCustomRow()">+ Add line</button></div>
-    </div>
-    <div class="note" style="margin-top:.6rem">Every quantity and unit rate in the table above is editable — type over it and totals update instantly. Use the – button to exclude a line from the estimate, or × to delete one you added.</div>
-  </div>
-
-  <div class="totals">
-    <div class="r"><span class="l">Material</span><span class="v" id="t-mat">—</span></div>
-    <div class="r"><span class="l">Labor (loaded, embedded in prices)</span><span class="v" id="t-lab">—</span></div>
-    <div class="r"><span class="l">Direct work subtotal</span><span class="v" id="t-direct">—</span></div>
-    <div class="r"><span class="l">General conditions (<span id="gc-l">8</span>%)</span><span class="v" id="t-gc">—</span></div>
-    <div class="r"><span class="l">GC overhead &amp; profit (<span id="op-l">12</span>%)</span><span class="v" id="t-op">—</span></div>
-    <div class="cont-row" style="flex-wrap:wrap">
-      <label class="l"><input type="checkbox" id="ppi-on" checked onchange="recalc()"> Adjust materials to latest open-data prices (BLS PPI)</label>
-      <div id="ppi-box" style="width:100%;font-size:12px;margin-top:4px">Loading material price index…</div>
-    </div>
-    <div class="cont-row">
-      <span class="l">Pricing</span>
-      <select id="price-book" onchange="setPriceBook(this.value)" style="margin-left:8px">
-        <option value="market">Market (subcontracted, GC markup)</option>
-        <option value="owner">P National proforma (self-performed GC)</option>
-        <option value="learned">My past budgets (imported)</option>
-      </select>
-      <button class="btn" type="button" style="margin-left:8px" onclick="openPriceBook()">📒 Import past budget</button>
-    </div>
-    <div class="cont-row">
-      <span class="l">GC %</span><input id="gc-pct" type="number" value="8" oninput="recalc()">
-      <span class="l" style="margin-left:12px">O&amp;P %</span><input id="op-pct" type="number" value="12" oninput="recalc()">
-      <span class="l" style="margin-left:12px">Contingency %</span><input id="cont-pct" type="number" value="15" oninput="recalc()">
-      <span class="v" id="t-cont" style="margin-left:auto">—</span>
-    </div>
-    <div class="r big"><span class="l">Total estimated hard cost</span><span class="v" id="t-grand">—</span></div>
-    <div class="cont-row">
-      <span class="l">Target margin %</span><input id="margin-pct" type="number" value="0" oninput="recalc()">
-      <span class="l">Sell price at <span id="margin-l">0</span>% margin</span>
-      <span class="v" id="t-sell" style="margin-left:auto">—</span>
-    </div>
-    <div id="mkt-compare" style="margin-top:.5rem;padding-top:.5rem;border-top:1px dashed var(--line)"></div>
-  </div>
-
-  <div class="note warn" style="margin-top:1rem">Accuracy ±20–30%, pre-bid. Items from plan schedules (windows, doors, HVAC equipment, elevators) are counted; area/length materials (GWB, partitions, paint, insulation) are derived using standard takeoff factors. Excludes soft costs (design fees, DOB filing/inspection fees, financing, insurance, FF&amp;E). Verify against dimensioned drawings before bid.</div>
-
-  <!-- SCOPE OF WORK: LABOR & SCHEDULE -->
-  <div class="section" style="margin-top:1.75rem">
-    <div class="section-title">Scope of work · labor &amp; schedule</div>
-
-    <div class="summary-grid">
-      <div class="metric"><div class="metric-label">Total labor</div><div class="metric-value" id="l-hours">—</div><div class="metric-sub">man-hours</div></div>
-      <div class="metric"><div class="metric-label">Loaded labor cost</div><div class="metric-value" id="l-cost">—</div><div class="metric-sub">embedded in costs above</div></div>
-      <div class="metric"><div class="metric-label">Project duration</div><div class="metric-value" id="l-days">—</div><div class="metric-sub" id="l-cal">—</div></div>
-      <div class="metric">
-        <div class="metric-label">Labor rate adj.</div>
-        <input id="labor-mult" type="number" step="0.05" value="1.0" oninput="recalc()" style="width:100%;padding:6px 9px;font-size:18px;font-weight:700;border:1px solid #cdc7f0;border-radius:8px;background:#faf9ff;font-family:inherit;outline:none">
-        <div class="metric-sub">× NYC loaded rates</div>
-      </div>
-    </div>
-
-    <div style="overflow-x:auto">
-      <table id="labor-table">
-        <thead><tr>
-          <th>Division / work package</th>
-          <th class="num">Labor hrs</th><th class="num">Crew</th>
-          <th class="num">Work-days</th><th class="num">Labor $</th><th style="width:190px">Timeline</th>
-        </tr></thead>
-        <tbody id="labor-body"></tbody>
-      </table>
-    </div>
-
-    <div class="section" style="margin-top:1.5rem">
-      <div class="section-title">Trade wage table <span style="font-weight:400;text-transform:none;letter-spacing:0">— loaded $/hr, editable</span></div>
-      <div style="overflow-x:auto">
-        <table id="wage-table">
-          <thead><tr><th>Trade</th><th class="num">Loaded rate</th><th>Basis</th></tr></thead>
-          <tbody id="wage-body"></tbody>
-        </table>
-      </div>
-      <div class="actions" style="margin-top:.6rem">
-        <button class="btn" onclick="setRateMode('open')">Open-shop rates (default)</button>
-        <button class="btn" onclick="setRateMode('union')">Union rates</button>
-        <button class="btn" onclick="resetWages()">↺ Reset wages to NYC defaults</button>
-      </div>
-      <div class="note" style="margin-top:.6rem">Loaded hourly rates (wage + burden), defaulted to <strong>NYC open-shop</strong>; one click swaps the whole table to union scale. Editing a rate re-prices that trade's labor everywhere it appears and updates the material/labor split. Rates are saved with "Save estimate".</div>
-    </div>
-
-    <div class="note" style="margin-top:1rem">Man-hours = estimate-grade productivity factors × takeoff quantities. Crew sizes and phase durations are planning-level: trades within a phase run concurrently, so each <strong>phase duration is the longest trade in that phase</strong>, and the project duration is the sum across phases. The labor dollars shown are the loaded crew cost <strong>already contained within the installed unit prices above</strong> — they are not added on top of the hard-cost total. Adjust the labor-rate multiplier for tighter local wage data.</div>
-  </div>
-</div>
-
-<!-- STEP 4: CLIENT PROPOSAL -->
-<div id="step-4" class="hidden">
-  <div class="actions no-print" style="margin-bottom:1rem">
-    <button class="btn" onclick="backFromProposal()">← Back to estimate</button>
-    <button class="btn btn-green" onclick="window.print()">🖨 Print / Save as PDF</button>
-  </div>
-  <div id="proposal" class="proposal"></div>
-</div>
-
-<!-- STEP 8: APPRAISAL REPORT (three approaches to value) -->
-<div id="step-8" class="hidden">
-  <div class="actions no-print" style="margin-bottom:1rem">
-    <button class="btn" onclick="backFromAppraisal()">← Back to estimate</button>
-    <button class="btn btn-green" onclick="window.print()">🖨 Print / Save as PDF</button>
-  </div>
-  <div id="apr-form" class="no-print"></div>
-  <div id="appraisal" class="proposal"></div>
-</div>
-
-<div id="step-7" class="hidden">
-  <div class="actions no-print" style="margin-bottom:1rem">
-    <button class="btn" onclick="backFromPlumbing()">← Back to estimate</button>
-    <button class="btn btn-green" onclick="window.print()">🖨 Print / Save as PDF</button>
-  </div>
-  <div class="proposal">
-    <h2 style="margin-bottom:.25rem">Plumbing breakdown</h2>
-    <div id="plumb"></div>
-  </div>
-</div>
-
-<div id="step-6" class="hidden">
-  <div class="actions no-print" style="margin-bottom:1rem">
-    <button class="btn" onclick="backFromElectrical()">← Back to estimate</button>
-    <button class="btn btn-green" onclick="window.print()">🖨 Print / Save as PDF</button>
-  </div>
-  <div class="proposal">
-    <h2 style="margin-bottom:.25rem">Electrical breakdown</h2>
-    <div id="elec"></div>
-  </div>
-</div>
-
-<div id="step-5" class="hidden">
-  <div class="actions no-print" style="margin-bottom:1rem">
-    <button class="btn" onclick="backFromSpecs()">← Back to estimate</button>
-    <button class="btn btn-primary" id="spec-genall" onclick="genAllSpecPhotos()">📷 Generate all photos</button>
-    <button class="btn btn-green" onclick="window.print()">🖨 Print / Save as PDF</button>
-  </div>
-  <div class="proposal">
-    <h2 style="margin-bottom:.25rem">Materials &amp; specifications</h2>
-    <p class="hint" style="margin-bottom:.5rem">Every item in this estimate with its material type. Photos are AI-generated illustrations of the specified item, not manufacturer product photos — generated once and remembered in this browser.</p>
-    <div id="specs"></div>
-  </div>
-</div>
-
-</div>
 <script>
-window.addEventListener('error',function(e){
-  var el=document.getElementById('err-banner');
-  if(el){ el.textContent='Script error: '+(e.message||'unknown')+'  — please report this.'; el.classList.remove('hidden'); }
-});
+(function(){
+  var API='/.netlify/functions/auth';
+  var f=document.getElementById('f-req'), btn=document.getElementById('r-btn'), msg=document.getElementById('r-msg');
+  function say(html,ok){ msg.className='msg '+(ok?'ok':'err'); msg.innerHTML=html; }
+  function esc(s){ return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]}); }
+  document.getElementById('r-show').addEventListener('click',function(){
+    var i=document.getElementById('r-pw'); i.type=i.type==='password'?'text':'password';
+    this.textContent=i.type==='password'?'Show':'Hide'; this.setAttribute('aria-label',i.type==='password'?'Show password':'Hide password');
+  });
+  f.addEventListener('submit',function(e){
+    e.preventDefault();
+    var b={action:'signup'}; new FormData(f).forEach(function(v,k){ b[k]=String(v).trim(); });
+    if(!b.name){ say('Enter your full name.'); return; }
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(b.email||'')){ say('Enter a valid email address.'); return; }
+    if(!b.password||b.password.length<8){ say('Choose a password with at least 8 characters.'); return; }
+    var label=btn.textContent; btn.disabled=true; btn.textContent='Sending request';
+    fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(b)})
+      .then(function(r){ return r.json().catch(function(){return {}}).then(function(d){ return {ok:r.ok,status:r.status,d:d}; }); })
+      .then(function(x){
+        if(x.ok&&x.d.user){ location.replace('/app'); return; }
+        if(x.ok&&x.d.pending){ f.reset(); say('<b>Request received.</b> P National will review it. You can sign in with this email and password as soon as you are approved.',true); return; }
+        if(x.status===409){ say('An account with this email already exists. <a href="/login">Sign in instead</a>.'); return; }
+        say(esc(x.d.error||'We could not send the request. Check your details and try again.'));
+      })
+      .catch(function(){ say('We could not reach the server. Check your connection and try again.'); })
+      .then(function(){ btn.disabled=false; btn.textContent=label; });
+  });
+  // Already signed in? Offer the app in place of sign-in links.
+  fetch(API+'?me',{credentials:'same-origin'}).then(function(r){
+    if(!r.ok) return;
+    document.querySelectorAll('a[href="/login"]').forEach(function(a){ if(a.classList.contains('signin')||a.classList.contains('btn-line')){ a.textContent='Open the app'; a.setAttribute('href','/app'); } });
+  }).catch(function(){});
+})();
 </script>
-<script src="vault.js?v=20261017-a"></script>
-<script src="app.js?v=20261020-nj"></script>
-<script src="appraisal.js?v=20261020-nj"></script>
-
-<!-- 3D RENDERING MODAL -->
-<div id="rendering-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,20,38,.93);overflow:auto;">
-  <div style="max-width:920px;margin:28px auto;padding:0 16px 48px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
-      <div>
-        <div style="color:#F2A900;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:3px">P National Group</div>
-        <h2 style="color:#fff;font-size:22px;font-weight:700;margin:0" id="render-title">Building Rendering</h2>
-      </div>
-      <button onclick="closeRendering()" style="background:none;border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:8px;padding:8px 18px;cursor:pointer;font-size:14px;font-family:inherit">✕ Close</button>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
-      <div style="background:#0d1f35;border-radius:12px;border:1px solid rgba(255,255,255,.08);overflow:hidden;">
-        <div style="padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between;">
-          <span style="color:#7a9ab8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">3D Block Model</span>
-          <span style="color:#3a5570;font-size:11px" id="render-metrics-badge">—</span>
-        </div>
-        <canvas id="render-canvas-3d" style="display:block;width:100%;height:340px;background:#0a1520;cursor:grab;"></canvas>
-        <div style="padding:7px 16px;font-size:11px;color:#3a5570;">Drag to rotate · Scroll to zoom</div>
-      </div>
-      <div style="background:#0d1f35;border-radius:12px;border:1px solid rgba(255,255,255,.08);overflow:hidden;">
-        <div style="padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between;">
-          <span style="color:#7a9ab8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">AI Exterior Rendering</span>
-          <input id="render-addr" placeholder="Street address (e.g. 915 Dean St)" style="flex:1;margin:0 8px;min-width:0;background:#0a1520;border:1px solid rgba(255,255,255,.12);color:#cfe3f5;border-radius:6px;padding:3px 8px;font-size:11px;font-family:inherit"><button id="regen-btn" onclick="generateAIImage()" style="background:rgba(29,111,184,.2);border:1px solid rgba(29,111,184,.35);color:#5aadee;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-family:inherit">↺ Regenerate</button>
-        </div>
-        <div id="ai-render-container" style="height:340px;position:relative;background:#0a1520;display:flex;align-items:center;justify-content:center;">
-          <div id="ai-render-loading" style="text-align:center;color:#3a5570;">
-            <div style="font-size:32px;margin-bottom:8px">🏗</div>
-            <div style="font-size:13px">Generating rendering…</div>
-          </div>
-          <div id="ai-render-error" style="display:none;color:#e56;font-size:13px;padding:20px;text-align:center;"></div>
-        </div>
-        <div style="padding:8px 16px;font-size:11px;color:#3a5570;line-height:1.4;" id="ai-render-caption">AI-generated architectural exterior</div>
-      </div>
-    </div>
-    <div style="background:#0d1f35;border-radius:12px;border:1px solid rgba(255,255,255,.08);padding:14px 20px;">
-      <div style="color:#7a9ab8;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;margin-bottom:10px">Building Summary</div>
-      <div id="render-summary" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;"></div>
-    </div>
-  </div>
-</div>
 </body>
 </html>
